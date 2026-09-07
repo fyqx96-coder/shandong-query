@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify, render_template_string, send_file, Response, stream_with_context
+from flask import Flask, request, jsonify, render_template_string, send_file, Response, stream_with_context, abort
 import requests
 import os
 import time
@@ -10,6 +10,7 @@ import threading
 import json
 import re
 from datetime import datetime
+from urllib.parse import quote
 
 app = Flask(__name__)
 
@@ -24,7 +25,6 @@ if os.path.exists(favorites_file):
 else:
     FAVORITES = []
 
-download_tasks = {}
 song_url_cache = {}
 
 # ==================== 预置推荐歌单 ====================
@@ -104,13 +104,13 @@ def search_music(keyword):
         return []
 
 def get_song_url(mid):
+    """获取歌曲真实播放链接"""
     if mid in song_url_cache:
         return song_url_cache[mid]
     try:
         if mid.startswith('preset_'):
-            url = f"https://example.com/music/{mid}.mp3"
-            song_url_cache[mid] = url
-            return url
+            # 预置歌曲没有真实链接，返回None
+            return None
         url = f"https://api.vkeys.cn/v2/music/tencent?mid={mid}&quality=8"
         response = requests.get(url, timeout=10)
         data = response.json()
@@ -124,74 +124,41 @@ def get_song_url(mid):
         print(f"获取下载链接失败: {e}")
         return None
 
-def download_song_task(task_id, song):
-    try:
-        download_tasks[task_id] = {'status': 'downloading', 'progress': 0, 'song': song['song']}
-        song_url = get_song_url(song['mid'])
-        if not song_url:
-            download_tasks[task_id] = {'status': 'failed', 'error': '无法获取下载链接'}
-            return
-        safe_singer = re.sub(r'[<>:"/\\|?*]', '_', song['singer'])
-        safe_song = re.sub(r'[<>:"/\\|?*]', '_', song['song'])
-        file_name = f"{safe_singer} - {safe_song}.mp3"
-        save_path = os.path.join(DOWNLOAD_DIR, file_name)
-        response = requests.get(song_url, stream=True, timeout=30)
-        total_size = int(response.headers.get('content-length', 0))
-        with open(save_path, 'wb') as f:
-            downloaded = 0
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total_size > 0:
-                        progress = int((downloaded / total_size) * 100)
-                        download_tasks[task_id]['progress'] = progress
-        download_tasks[task_id] = {
-            'status': 'completed',
-            'progress': 100,
-            'file': file_name,
-            'path': save_path
-        }
-    except Exception as e:
-        download_tasks[task_id] = {'status': 'failed', 'error': str(e)}
-
-def proxy_stream(url):
-    try:
-        response = requests.get(url, stream=True, timeout=30)
-        response.raise_for_status()
-        def generate():
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    yield chunk
-        return Response(
-            stream_with_context(generate()),
-            status=response.status_code,
-            headers={
-                'Content-Type': 'audio/mpeg',
-                'Content-Length': response.headers.get('content-length', ''),
-                'Accept-Ranges': 'bytes',
-                'Cache-Control': 'public, max-age=86400',
-                'Access-Control-Allow-Origin': '*',
-            }
-        )
-    except Exception as e:
-        print(f"流式播放失败: {e}")
-        return None
-
-# ==================== 获取已下载歌曲列表 ====================
 def get_downloaded_songs():
     songs = []
     if os.path.exists(DOWNLOAD_DIR):
         for f in os.listdir(DOWNLOAD_DIR):
             if f.endswith('.mp3'):
-                # 解析文件名 歌手 - 歌曲.mp3
                 name = f.replace('.mp3', '')
                 parts = name.split(' - ', 1)
                 if len(parts) == 2:
-                    songs.append({'song': parts[1], 'singer': parts[0], 'file': f})
+                    songs.append({'song': parts[1], 'singer': parts[0], 'file': f, 'mid': 'local_' + f})
                 else:
-                    songs.append({'song': name, 'singer': '未知', 'file': f})
+                    songs.append({'song': name, 'singer': '未知', 'file': f, 'mid': 'local_' + f})
     return songs
+
+def proxy_stream(url, as_attachment=False, filename=None):
+    """流式代理，支持直接下载"""
+    try:
+        response = requests.get(url, stream=True, timeout=30)
+        response.raise_for_status()
+        headers = {
+            'Content-Type': 'audio/mpeg',
+            'Content-Length': response.headers.get('content-length', ''),
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'public, max-age=86400',
+            'Access-Control-Allow-Origin': '*',
+        }
+        if as_attachment and filename:
+            headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
+        def generate():
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+        return Response(stream_with_context(generate()), status=response.status_code, headers=headers)
+    except Exception as e:
+        print(f"流式代理失败: {e}")
+        return None
 
 # ==================== HTML 模板 ====================
 
@@ -264,11 +231,6 @@ HTML_TEMPLATE = '''
         .card-badge{position:absolute;top:6px;right:6px;font-size:9px;background:rgba(255,215,0,0.15);color:#ffd700;padding:1px 8px;border-radius:8px}
         .card-badge.local{background:rgba(23,162,184,0.2);color:#17a2b8}
         
-        .download-status{background:var(--card);border-radius:12px;padding:14px;margin-top:12px;border:1px solid rgba(255,215,0,0.08);display:none}
-        .download-status .bar{width:100%;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;margin-top:6px}
-        .download-status .bar-inner{height:100%;background:linear-gradient(90deg,var(--primary),var(--primary2));transition:width 0.3s;border-radius:2px}
-        .download-status .info{display:flex;justify-content:space-between;font-size:12px;color:var(--text2)}
-        
         .player{position:fixed;bottom:0;left:0;right:0;background:rgba(20,20,40,0.96);backdrop-filter:blur(16px);padding:10px 14px;border-top:1px solid rgba(255,255,255,0.05);z-index:100}
         .player .top-row{display:flex;align-items:center;gap:10px}
         .player .top-row .info{flex:1;min-width:0}
@@ -331,7 +293,6 @@ HTML_TEMPLATE = '''
 <body>
 <div class="toast" id="toast"></div>
 
-<!-- 等待遮罩 -->
 <div class="waiting-overlay" id="waitingOverlay">
     <div class="spinner-big"></div>
     <div class="waiting-text">⏳ 正在加载歌曲...</div>
@@ -352,7 +313,7 @@ HTML_TEMPLATE = '''
             最酷音乐下歌精灵
             <span class="version">v2.1</span>
         </h1>
-        <div class="sub">🎧 点击卡片立即播放 · 边下边播</div>
+        <div class="sub">🎧 点击卡片立即播放 · 直接下载</div>
         <div class="lyric">✨ "{{ lyric }}"</div>
     </div>
     
@@ -377,12 +338,6 @@ HTML_TEMPLATE = '''
     <div id="loading" class="loading"><div class="spinner"></div><p style="color:#888;margin-top:6px;font-size:13px">加载中...</p></div>
     
     <div id="songGrid" class="song-grid"></div>
-    
-    <div id="downloadStatus" class="download-status">
-        <div class="info"><span id="downloadInfo">准备下载...</span><span id="downloadProgress">0%</span></div>
-        <div class="bar"><div class="bar-inner" id="progressBar" style="width:0%"></div></div>
-        <div style="margin-top:4px;font-size:11px;color:#666" id="downloadDetail"></div>
-    </div>
     
     <div class="footer-text">🎵 最酷音乐下歌精灵 v2.1 · 点击卡片立即播放</div>
 </div>
@@ -417,8 +372,6 @@ const presetSongs = {{ preset_songs|tojson }};
 // ==================== 状态 ====================
 let currentSongs = [];
 let currentTab = 'recommend';
-let downloadTaskId = null;
-let statusCheckInterval = null;
 let favorites = [];
 let currentPlayIndex = -1;
 let playMode = 'all';
@@ -684,6 +637,14 @@ function playSong(idx, seekTime) {
     const song = currentSongs[idx];
     if (!song) return;
     
+    // 如果是本地文件，使用本地播放路径
+    let playUrl = '';
+    if (song.mid && song.mid.startsWith('local_')) {
+        playUrl = `/api/local/${encodeURIComponent(song.file)}`;
+    } else {
+        playUrl = `/api/stream/${encodeURIComponent(song.mid || '')}`;
+    }
+    
     // 显示等待遮罩
     showWaiting(true);
     
@@ -697,11 +658,9 @@ function playSong(idx, seekTime) {
     const el = document.getElementById(`card-${idx}`);
     if (el) el.classList.add('playing');
     
-    const playUrl = `/api/stream/${encodeURIComponent(song.mid || '')}`;
     audio.src = playUrl;
     audio.load();
     
-    // 6秒后自动播放或等待加载完成
     let loaded = false;
     audio.oncanplay = function() {
         if (!loaded) {
@@ -717,7 +676,7 @@ function playSong(idx, seekTime) {
         }
     };
     
-    // 6秒超时强制播放
+    // 6秒超时强制播放（如果还没加载完）
     setTimeout(() => {
         showWaiting(false);
         if (!loaded) {
@@ -731,10 +690,9 @@ function playSong(idx, seekTime) {
         }
     }, 6000);
     
-    // 错误处理
     audio.onerror = function() {
         showWaiting(false);
-        showToast('❌ 播放失败，请重试');
+        showToast('❌ 播放失败，请重试或下载后播放');
         isPlaying = false;
         document.getElementById('playPauseBtn').textContent = '▶️';
     };
@@ -854,66 +812,22 @@ function formatTime(seconds) {
     return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
 }
 
-// ==================== 下载 ====================
+// ==================== 下载（直接下载） ====================
 function downloadSong(idx) {
     const song = currentSongs[idx];
     if (!song) return;
-    const status = document.getElementById('downloadStatus');
-    status.style.display = 'block';
-    document.getElementById('downloadInfo').textContent = `⬇️ ${song.song} - ${song.singer}`;
-    document.getElementById('downloadProgress').textContent = '0%';
-    document.getElementById('progressBar').style.width = '0%';
-    document.getElementById('downloadDetail').textContent = '⏳ 准备下载...';
-    showToast(`⏳ 开始下载: ${song.song}`);
     
-    fetch('/api/download', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(song)
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.code === 200) {
-            downloadTaskId = data.task_id;
-            startStatusCheck();
-        } else {
-            document.getElementById('downloadDetail').textContent = '❌ ' + data.message;
-            showToast('❌ 下载失败: ' + data.message);
-        }
-    })
-    .catch(() => { document.getElementById('downloadDetail').textContent = '❌ 下载请求失败'; showToast('❌ 下载请求失败'); });
-}
-
-function startStatusCheck() {
-    if (statusCheckInterval) clearInterval(statusCheckInterval);
-    statusCheckInterval = setInterval(() => {
-        fetch(`/api/download/status/${downloadTaskId}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'completed') {
-                    clearInterval(statusCheckInterval);
-                    document.getElementById('downloadInfo').textContent = '✅ 下载完成!';
-                    document.getElementById('downloadProgress').textContent = '100%';
-                    document.getElementById('progressBar').style.width = '100%';
-                    document.getElementById('downloadDetail').innerHTML = `
-                        📁 已保存: ${data.file}
-                        <br>
-                        <a href="/api/download/file/${downloadTaskId}" style="color:#ffd700;" download>🎧 点击下载文件</a>
-                    `;
-                    showToast('✅ 下载完成: ' + data.file);
-                } else if (data.status === 'downloading') {
-                    document.getElementById('downloadProgress').textContent = data.progress + '%';
-                    document.getElementById('progressBar').style.width = data.progress + '%';
-                    document.getElementById('downloadDetail').textContent = `⏳ 下载中... ${data.progress}%`;
-                } else if (data.status === 'failed') {
-                    clearInterval(statusCheckInterval);
-                    document.getElementById('downloadInfo').textContent = '❌ 下载失败';
-                    document.getElementById('downloadDetail').textContent = '错误: ' + (data.error || '未知错误');
-                    showToast('❌ 下载失败');
-                }
-            })
-            .catch(() => {});
-    }, 1000);
+    // 如果是本地文件，直接提供下载链接
+    if (song.mid && song.mid.startsWith('local_')) {
+        window.open(`/api/local/${encodeURIComponent(song.file)}?download=true`, '_blank');
+        showToast(`⬇️ 下载: ${song.song}`);
+        return;
+    }
+    
+    // 否则尝试从源URL下载
+    const downloadUrl = `/api/download/direct/${encodeURIComponent(song.mid || '')}?name=${encodeURIComponent(song.song + ' - ' + song.singer)}`;
+    window.open(downloadUrl, '_blank');
+    showToast(`⬇️ 开始下载: ${song.song}`);
 }
 
 function showLoading(show) {
@@ -928,15 +842,44 @@ function showLoading(show) {
 
 @app.route('/api/stream/<mid>')
 def stream_music(mid):
+    """在线播放（流式）"""
     song_url = get_song_url(mid)
     if not song_url:
-        return jsonify({'code': 404, 'message': '无法获取播放链接'}), 404
-    if song_url.startswith('https://example.com/'):
-        return jsonify({'code': 404, 'message': '预置歌曲请先下载到服务器'}), 404
+        # 如果没有真实链接，返回错误
+        return jsonify({'code': 404, 'message': '暂无播放源，请下载后本地播放'}), 404
     response = proxy_stream(song_url)
     if response:
         return response
     return jsonify({'code': 404, 'message': '播放失败'}), 404
+
+@app.route('/api/download/direct/<mid>')
+def download_direct(mid):
+    """直接下载（无需保存到服务器）"""
+    song_name = request.args.get('name', 'music')
+    song_url = get_song_url(mid)
+    if not song_url:
+        return jsonify({'code': 404, 'message': '无法获取下载链接'}), 404
+    # 如果是预设歌曲，尝试获取真实链接
+    if mid.startswith('preset_'):
+        # 如果预设歌曲没有真实链接，尝试通过其他方式（这里简单返回错误）
+        return jsonify({'code': 404, 'message': '预设歌曲暂无下载源'}), 404
+    filename = f"{song_name}.mp3"
+    response = proxy_stream(song_url, as_attachment=True, filename=filename)
+    if response:
+        return response
+    return jsonify({'code': 404, 'message': '下载失败'}), 404
+
+@app.route('/api/local/<path:filename>')
+def play_local(filename):
+    """播放或下载本地文件"""
+    filepath = os.path.join(DOWNLOAD_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({'code': 404, 'message': '文件不存在'}), 404
+    # 如果请求参数包含 download=true，则触发下载
+    if request.args.get('download'):
+        return send_file(filepath, as_attachment=True, download_name=filename)
+    # 否则流式播放
+    return send_file(filepath, mimetype='audio/mpeg')
 
 @app.route('/api/downloaded')
 def get_downloaded():
@@ -957,35 +900,6 @@ def search():
     results = search_music(keyword)
     return jsonify({'code': 200, 'data': results})
 
-@app.route('/api/download', methods=['POST'])
-def start_download():
-    song = request.json
-    if not song or not song.get('mid'):
-        return jsonify({'code': 400, 'message': '无效的歌曲信息'})
-    task_id = f"{int(time.time())}_{random.randint(1000, 9999)}"
-    thread = threading.Thread(target=download_song_task, args=(task_id, song))
-    thread.daemon = True
-    thread.start()
-    return jsonify({'code': 200, 'task_id': task_id})
-
-@app.route('/api/download/status/<task_id>')
-def download_status(task_id):
-    if task_id not in download_tasks:
-        return jsonify({'status': 'not_found'})
-    return jsonify(download_tasks[task_id])
-
-@app.route('/api/download/file/<task_id>')
-def download_file(task_id):
-    if task_id not in download_tasks:
-        return jsonify({'error': '任务不存在'}), 404
-    task = download_tasks[task_id]
-    if task.get('status') != 'completed':
-        return jsonify({'error': '文件未准备好'}), 404
-    path = task.get('path')
-    if not path or not os.path.exists(path):
-        return jsonify({'error': '文件不存在'}), 404
-    return send_file(path, as_attachment=True, download_name=task.get('file', 'music.mp3'))
-
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -993,7 +907,7 @@ if __name__ == '__main__':
     print("  🎵 最酷音乐下歌精灵 v2.1")
     print("="*60)
     print(f"  🌐 访问地址: http://localhost:{port}")
-    print("  🎧 点击卡片立即播放 · 6秒等待")
+    print("  🎧 点击卡片立即播放 · 直接下载")
     print("  📂 已下载歌曲列表")
     print("  🏠 点击标题返回主页")
     print("="*60)
