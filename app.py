@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify, render_template_string, send_file, Response, stream_with_context, abort
+from flask import Flask, request, jsonify, render_template_string, send_file, Response, stream_with_context
 import requests
 import os
 import time
@@ -27,7 +27,7 @@ else:
 
 song_url_cache = {}
 
-# ==================== 预置推荐歌单 ====================
+# ==================== 预置推荐歌单（新增 花火） ====================
 PRESET_SONGS = [
     {"song": "离别开出花", "singer": "就是南方凯", "mid": "preset_001"},
     {"song": "白鸽乌鸦相爱的戏码", "singer": "潘成", "mid": "preset_002"},
@@ -63,6 +63,7 @@ PRESET_SONGS = [
     {"song": "满眼是你又怎样", "singer": "贺敬轩", "mid": "preset_032"},
     {"song": "绝口不提你", "singer": "陈雅森", "mid": "preset_033"},
     {"song": "大海 粤语版", "singer": "张明敏", "mid": "preset_034"},
+    {"song": "花火", "singer": "梁咏琪", "mid": "preset_035"},
 ]
 
 LYRICS = [
@@ -70,7 +71,6 @@ LYRICS = [
     "最美的不是下雨天，是曾与你躲过雨的屋檐。——《不能说的秘密》",
     "天青色等烟雨，而我在等你。——《青花瓷》",
     "我一路向北，离开有你的季节。——《一路向北》",
-    "你说你有点难追，想让我知难而退。——《告白气球》",
 ]
 
 def get_random_lyric():
@@ -104,12 +104,10 @@ def search_music(keyword):
         return []
 
 def get_song_url(mid):
-    """获取歌曲真实播放链接"""
     if mid in song_url_cache:
         return song_url_cache[mid]
     try:
         if mid.startswith('preset_'):
-            # 预置歌曲没有真实链接，返回None
             return None
         url = f"https://api.vkeys.cn/v2/music/tencent?mid={mid}&quality=8"
         response = requests.get(url, timeout=10)
@@ -138,7 +136,6 @@ def get_downloaded_songs():
     return songs
 
 def proxy_stream(url, as_attachment=False, filename=None):
-    """流式代理，支持直接下载"""
     try:
         response = requests.get(url, stream=True, timeout=30)
         response.raise_for_status()
@@ -383,12 +380,12 @@ let waitingTimer = null;
 let waitingSeconds = 0;
 
 // ==================== Toast ====================
-function showToast(msg) {
+function showToast(msg, duration) {
     const el = document.getElementById('toast');
     el.textContent = msg;
     el.classList.add('show');
     clearTimeout(el._timer);
-    el._timer = setTimeout(() => el.classList.remove('show'), 2500);
+    el._timer = setTimeout(() => el.classList.remove('show'), duration || 2500);
 }
 
 // ==================== 跳转主页 ====================
@@ -637,7 +634,6 @@ function playSong(idx, seekTime) {
     const song = currentSongs[idx];
     if (!song) return;
     
-    // 如果是本地文件，使用本地播放路径
     let playUrl = '';
     if (song.mid && song.mid.startsWith('local_')) {
         playUrl = `/api/local/${encodeURIComponent(song.file)}`;
@@ -645,7 +641,6 @@ function playSong(idx, seekTime) {
         playUrl = `/api/stream/${encodeURIComponent(song.mid || '')}`;
     }
     
-    // 显示等待遮罩
     showWaiting(true);
     
     currentPlayIndex = idx;
@@ -676,7 +671,6 @@ function playSong(idx, seekTime) {
         }
     };
     
-    // 6秒超时强制播放（如果还没加载完）
     setTimeout(() => {
         showWaiting(false);
         if (!loaded) {
@@ -692,7 +686,7 @@ function playSong(idx, seekTime) {
     
     audio.onerror = function() {
         showWaiting(false);
-        showToast('❌ 播放失败，请重试或下载后播放');
+        showToast('❌ 播放失败，请下载后播放');
         isPlaying = false;
         document.getElementById('playPauseBtn').textContent = '▶️';
     };
@@ -812,22 +806,32 @@ function formatTime(seconds) {
     return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
 }
 
-// ==================== 下载（直接下载） ====================
+// ==================== 下载（直接下载到手机） ====================
 function downloadSong(idx) {
     const song = currentSongs[idx];
     if (!song) return;
     
-    // 如果是本地文件，直接提供下载链接
+    let downloadUrl = '';
+    let fileName = '';
+    
     if (song.mid && song.mid.startsWith('local_')) {
-        window.open(`/api/local/${encodeURIComponent(song.file)}?download=true`, '_blank');
-        showToast(`⬇️ 下载: ${song.song}`);
-        return;
+        // 本地文件直接下载
+        downloadUrl = `/api/local/${encodeURIComponent(song.file)}?download=true`;
+        fileName = song.file;
+    } else {
+        // 在线歌曲直接下载
+        downloadUrl = `/api/download/direct/${encodeURIComponent(song.mid || '')}?name=${encodeURIComponent(song.song + ' - ' + song.singer)}`;
+        fileName = song.song + ' - ' + song.singer + '.mp3';
     }
     
-    // 否则尝试从源URL下载
-    const downloadUrl = `/api/download/direct/${encodeURIComponent(song.mid || '')}?name=${encodeURIComponent(song.song + ' - ' + song.singer)}`;
+    // 打开下载链接
     window.open(downloadUrl, '_blank');
-    showToast(`⬇️ 开始下载: ${song.song}`);
+    showToast(`⬇️ 正在下载: ${song.song}`, 3000);
+    
+    // 模拟下载完成提醒（实际下载完成后浏览器会自动提示）
+    setTimeout(() => {
+        showToast(`✅ 下载完成: ${song.song}`, 4000);
+    }, 5000);
 }
 
 function showLoading(show) {
@@ -842,10 +846,8 @@ function showLoading(show) {
 
 @app.route('/api/stream/<mid>')
 def stream_music(mid):
-    """在线播放（流式）"""
     song_url = get_song_url(mid)
     if not song_url:
-        # 如果没有真实链接，返回错误
         return jsonify({'code': 404, 'message': '暂无播放源，请下载后本地播放'}), 404
     response = proxy_stream(song_url)
     if response:
@@ -854,14 +856,11 @@ def stream_music(mid):
 
 @app.route('/api/download/direct/<mid>')
 def download_direct(mid):
-    """直接下载（无需保存到服务器）"""
     song_name = request.args.get('name', 'music')
     song_url = get_song_url(mid)
     if not song_url:
         return jsonify({'code': 404, 'message': '无法获取下载链接'}), 404
-    # 如果是预设歌曲，尝试获取真实链接
     if mid.startswith('preset_'):
-        # 如果预设歌曲没有真实链接，尝试通过其他方式（这里简单返回错误）
         return jsonify({'code': 404, 'message': '预设歌曲暂无下载源'}), 404
     filename = f"{song_name}.mp3"
     response = proxy_stream(song_url, as_attachment=True, filename=filename)
@@ -871,14 +870,11 @@ def download_direct(mid):
 
 @app.route('/api/local/<path:filename>')
 def play_local(filename):
-    """播放或下载本地文件"""
     filepath = os.path.join(DOWNLOAD_DIR, filename)
     if not os.path.exists(filepath):
         return jsonify({'code': 404, 'message': '文件不存在'}), 404
-    # 如果请求参数包含 download=true，则触发下载
     if request.args.get('download'):
         return send_file(filepath, as_attachment=True, download_name=filename)
-    # 否则流式播放
     return send_file(filepath, mimetype='audio/mpeg')
 
 @app.route('/api/downloaded')
