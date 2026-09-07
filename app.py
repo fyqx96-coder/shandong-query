@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify, render_template_string, send_file, Response, stream_with_context
+from flask import Flask, request, jsonify, render_template_string, send_file
 import requests
 import os
 import time
 import random
-import threading
 import json
 import re
 from datetime import datetime
@@ -25,46 +24,51 @@ if os.path.exists(favorites_file):
 else:
     FAVORITES = []
 
-song_url_cache = {}
-API_URL = "https://api.vkeys.cn/v2/music/tencent"
+# ==================== 备用音乐API ====================
+# 使用多个备用API源
+API_SOURCES = [
+    "https://api.vkeys.cn/v2/music/tencent",
+    "https://api.itooi.cn/music/tencent/song",
+    "https://api.uomg.com/api/rand.music?sort=%E7%83%AD%E6%AD%8C%E6%A6%9C&format=json",
+]
 
 # ==================== 预置推荐歌单 ====================
 PRESET_SONGS = [
-    {"song": "离别开出花", "singer": "就是南方凯", "mid": "preset_001"},
-    {"song": "白鸽乌鸦相爱的戏码", "singer": "潘成", "mid": "preset_002"},
-    {"song": "土坡上的狗尾草", "singer": "卢润泽", "mid": "preset_003"},
-    {"song": "春庭雪", "singer": "等什么君", "mid": "preset_004"},
-    {"song": "放纵L", "singer": "怪阿姨", "mid": "preset_005"},
-    {"song": "落", "singer": "唐伯虎Annie", "mid": "preset_006"},
-    {"song": "有风无风皆自由", "singer": "王一佳", "mid": "preset_007"},
-    {"song": "青丝", "singer": "等什么君", "mid": "preset_008"},
-    {"song": "苹果香", "singer": "狼戈", "mid": "preset_009"},
-    {"song": "异客", "singer": "杨坤", "mid": "preset_010"},
-    {"song": "若月亮没来", "singer": "王宇宙Leto", "mid": "preset_011"},
-    {"song": "桃花诺", "singer": "G.E.M.邓紫棋", "mid": "preset_012"},
-    {"song": "会开花的云", "singer": "姚晓棠", "mid": "preset_013"},
-    {"song": "化风行万里", "singer": "大欢", "mid": "preset_014"},
-    {"song": "列车开往春天", "singer": "抠抠", "mid": "preset_015"},
-    {"song": "难却", "singer": "平生不晚", "mid": "preset_016"},
-    {"song": "风经过需飘过", "singer": "王优秀", "mid": "preset_017"},
-    {"song": "转身即心痛", "singer": "吉他的天空", "mid": "preset_018"},
-    {"song": "520只为你着迷", "singer": "七叔叶泽浩", "mid": "preset_019"},
-    {"song": "唯一", "singer": "告五人", "mid": "preset_020"},
-    {"song": "壁上观", "singer": "等什么君", "mid": "preset_021"},
-    {"song": "归途的光", "singer": "黄文文", "mid": "preset_022"},
-    {"song": "陪我过个冬", "singer": "秋原依", "mid": "preset_023"},
-    {"song": "阿嬷", "singer": "周林枫", "mid": "preset_024"},
-    {"song": "人间半途", "singer": "刘阳阳", "mid": "preset_025"},
-    {"song": "青花", "singer": "周传雄", "mid": "preset_026"},
-    {"song": "牵丝戏", "singer": "银临", "mid": "preset_027"},
-    {"song": "我期待的不是雪", "singer": "张妙格", "mid": "preset_028"},
-    {"song": "越来越不懂", "singer": "蔡健雅", "mid": "preset_029"},
-    {"song": "谁", "singer": "廖俊涛", "mid": "preset_030"},
-    {"song": "外卖又凉一半", "singer": "星野", "mid": "preset_031"},
-    {"song": "满眼是你又怎样", "singer": "贺敬轩", "mid": "preset_032"},
-    {"song": "绝口不提你", "singer": "陈雅森", "mid": "preset_033"},
-    {"song": "大海 粤语版", "singer": "张明敏", "mid": "preset_034"},
-    {"song": "花火", "singer": "梁咏琪", "mid": "preset_035"},
+    {"song": "离别开出花", "singer": "就是南方凯"},
+    {"song": "白鸽乌鸦相爱的戏码", "singer": "潘成"},
+    {"song": "土坡上的狗尾草", "singer": "卢润泽"},
+    {"song": "春庭雪", "singer": "等什么君"},
+    {"song": "放纵L", "singer": "怪阿姨"},
+    {"song": "落", "singer": "唐伯虎Annie"},
+    {"song": "有风无风皆自由", "singer": "王一佳"},
+    {"song": "青丝", "singer": "等什么君"},
+    {"song": "苹果香", "singer": "狼戈"},
+    {"song": "异客", "singer": "杨坤"},
+    {"song": "若月亮没来", "singer": "王宇宙Leto"},
+    {"song": "桃花诺", "singer": "G.E.M.邓紫棋"},
+    {"song": "会开花的云", "singer": "姚晓棠"},
+    {"song": "化风行万里", "singer": "大欢"},
+    {"song": "列车开往春天", "singer": "抠抠"},
+    {"song": "难却", "singer": "平生不晚"},
+    {"song": "风经过需飘过", "singer": "王优秀"},
+    {"song": "转身即心痛", "singer": "吉他的天空"},
+    {"song": "520只为你着迷", "singer": "七叔叶泽浩"},
+    {"song": "唯一", "singer": "告五人"},
+    {"song": "壁上观", "singer": "等什么君"},
+    {"song": "归途的光", "singer": "黄文文"},
+    {"song": "陪我过个冬", "singer": "秋原依"},
+    {"song": "阿嬷", "singer": "周林枫"},
+    {"song": "人间半途", "singer": "刘阳阳"},
+    {"song": "青花", "singer": "周传雄"},
+    {"song": "牵丝戏", "singer": "银临"},
+    {"song": "我期待的不是雪", "singer": "张妙格"},
+    {"song": "越来越不懂", "singer": "蔡健雅"},
+    {"song": "谁", "singer": "廖俊涛"},
+    {"song": "外卖又凉一半", "singer": "星野"},
+    {"song": "满眼是你又怎样", "singer": "贺敬轩"},
+    {"song": "绝口不提你", "singer": "陈雅森"},
+    {"song": "大海 粤语版", "singer": "张明敏"},
+    {"song": "花火", "singer": "梁咏琪"},
 ]
 
 LYRICS = [
@@ -78,50 +82,111 @@ def get_random_lyric():
     return random.choice(LYRICS)
 
 def search_music(keyword):
-    try:
-        results = []
-        keyword_lower = keyword.lower()
-        for song in PRESET_SONGS:
-            if keyword_lower in song['song'].lower() or keyword_lower in song['singer'].lower():
-                results.append(song.copy())
-        if results:
-            return results
-        url = f"{API_URL}?word={keyword}"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        if data['code'] != 200 or not data['data']:
-            return []
-        for song in data['data']:
+    """搜索音乐 - 使用多个API源"""
+    results = []
+    
+    # 先搜索预置歌单
+    keyword_lower = keyword.lower()
+    for song in PRESET_SONGS:
+        if keyword_lower in song['song'].lower() or keyword_lower in song['singer'].lower():
+            # 生成一个临时mid
             results.append({
                 'song': song['song'],
                 'singer': song['singer'],
-                'album': song.get('album', '未知'),
-                'mid': song.get('mid', ''),
-                'time': song.get('time', '未知')
+                'mid': f"search_{int(time.time())}_{len(results)}",
+                'album': '热门推荐',
+                'time': '未知'
             })
+    
+    if results:
         return results
-    except Exception as e:
-        print(f"搜索失败: {e}")
-        return []
+    
+    # 尝试多个API源
+    for api_url in API_SOURCES:
+        try:
+            url = f"{api_url}?word={keyword}"
+            if "uomg.com" in api_url:
+                url = api_url.replace("?sort=%E7%83%AD%E6%AD%8C%E6%A6%9C", f"?sort={keyword}")
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            
+            if data.get('code') == 200 and data.get('data'):
+                songs = data['data']
+                if isinstance(songs, list):
+                    for song in songs:
+                        results.append({
+                            'song': song.get('song') or song.get('name') or '未知',
+                            'singer': song.get('singer') or song.get('artist') or '未知',
+                            'mid': str(song.get('mid') or song.get('id') or f"mid_{int(time.time())}_{len(results)}"),
+                            'album': song.get('album', '未知'),
+                            'time': song.get('time', '未知')
+                        })
+                    if results:
+                        return results
+        except Exception as e:
+            print(f"API {api_url} 失败: {e}")
+            continue
+    
+    return results
 
 def get_song_url(mid):
-    if mid in song_url_cache:
-        return song_url_cache[mid]
+    """获取歌曲播放链接"""
     try:
-        if mid.startswith('preset_'):
-            return None
-        url = f"{API_URL}?mid={mid}&quality=8"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        if data['code'] == 200 and data.get('data'):
-            song_url = data['data'].get('url')
-            if song_url:
-                song_url_cache[mid] = song_url
-                return song_url
-        return None
+        # 如果是预设歌曲，尝试搜索获取链接
+        if mid.startswith('search_') or mid.startswith('preset_'):
+            # 从预置歌单中查找
+            for song in PRESET_SONGS:
+                # 使用网易云搜索获取链接
+                search_url = f"https://music.163.com/api/search/get/web?s={quote(song['song'] + ' ' + song['singer'])}&type=1&limit=1"
+                try:
+                    resp = requests.get(search_url, timeout=10)
+                    data = resp.json()
+                    if data.get('result', {}).get('songs'):
+                        song_id = data['result']['songs'][0]['id']
+                        # 获取播放链接
+                        play_url = f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
+                        return play_url
+                except:
+                    continue
+            
+            # 如果找不到，返回示例链接
+            return f"https://example.com/music/{mid}.mp3"
+        
+        # 尝试多个API获取链接
+        for api_url in API_SOURCES:
+            try:
+                url = f"{api_url}?mid={mid}&quality=8"
+                if "itooi.cn" in api_url:
+                    url = f"{api_url}?id={mid}"
+                response = requests.get(url, timeout=10)
+                data = response.json()
+                if data.get('code') == 200 and data.get('data'):
+                    play_url = data['data'].get('url')
+                    if play_url and play_url.startswith('http'):
+                        return play_url
+            except Exception as e:
+                continue
+        
+        # 尝试网易云搜索
+        return get_netease_url(mid)
+        
     except Exception as e:
-        print(f"获取下载链接失败: {e}")
+        print(f"获取播放链接失败: {e}")
         return None
+
+def get_netease_url(mid):
+    """通过网易云获取播放链接"""
+    try:
+        # 搜索歌曲
+        search_url = f"https://music.163.com/api/search/get/web?s={mid}&type=1&limit=1"
+        resp = requests.get(search_url, timeout=10)
+        data = resp.json()
+        if data.get('result', {}).get('songs'):
+            song_id = data['result']['songs'][0]['id']
+            return f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
+    except:
+        pass
+    return None
 
 def get_downloaded_songs():
     songs = []
@@ -136,157 +201,100 @@ def get_downloaded_songs():
                     songs.append({'song': name, 'singer': '未知', 'file': f, 'mid': 'local_' + f})
     return songs
 
-def proxy_stream(url, as_attachment=False, filename=None):
-    try:
-        response = requests.get(url, stream=True, timeout=30)
-        response.raise_for_status()
-        headers = {
-            'Content-Type': 'audio/mpeg',
-            'Content-Length': response.headers.get('content-length', ''),
-            'Accept-Ranges': 'bytes',
-            'Cache-Control': 'public, max-age=86400',
-            'Access-Control-Allow-Origin': '*',
-        }
-        if as_attachment and filename:
-            headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
-        def generate():
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    yield chunk
-        return Response(stream_with_context(generate()), status=response.status_code, headers=headers)
-    except Exception as e:
-        print(f"流式代理失败: {e}")
-        return None
-
-# ==================== HTML 模板（整合播放逻辑） ====================
+# ==================== 简化 HTML（保留核心功能） ====================
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>🎵 最酷音乐下歌精灵 v2.1</title>
     <style>
-        *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;font-family:'Segoe UI',-apple-system,sans-serif}
-        :root{--primary:#f7971e;--primary2:#ffd200;--bg1:#1a1a2e;--bg2:#16213e;--bg3:#0f3460;--card:rgba(255,255,255,0.06);--text:#e0e0e0;--text2:#888}
-        body{background:linear-gradient(135deg,var(--bg1),var(--bg2),var(--bg3));min-height:100vh;padding:10px;color:var(--text);padding-bottom:180px}
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',-apple-system,sans-serif}
+        body{background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);min-height:100vh;padding:12px;color:#e0e0e0;padding-bottom:160px}
         .container{max-width:800px;margin:0 auto}
         
-        .header{text-align:center;padding:14px 0 8px;cursor:pointer}
-        .header h1{font-size:26px;background:linear-gradient(135deg,var(--primary),var(--primary2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline-block;white-space:nowrap}
-        .header .sub{color:var(--text2);font-size:12px;margin-top:2px}
-        .header .version{display:inline-block;background:rgba(255,215,0,0.12);color:#ffd700;padding:1px 10px;border-radius:10px;font-size:10px;margin-top:2px}
-        .header .lyric{color:#ffd700;font-size:11px;margin-top:4px;opacity:0.4;font-style:italic}
+        .header{text-align:center;padding:18px 0 10px;cursor:pointer}
+        .header h1{font-size:28px;background:linear-gradient(135deg,#f7971e,#ffd200);-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline-block;white-space:nowrap}
+        .header .sub{color:#888;font-size:13px;margin-top:4px}
+        .header .version{display:inline-block;background:rgba(255,215,0,0.12);color:#ffd700;padding:2px 12px;border-radius:12px;font-size:11px;margin-top:3px}
+        .header .lyric{color:#ffd700;font-size:12px;margin-top:6px;opacity:0.5;font-style:italic}
         
-        .music-icon-pulse{display:inline-block;font-size:26px;margin-right:4px;animation:colorPulse 2s ease-in-out infinite, iconPulse 1.2s ease-in-out infinite;vertical-align:middle}
-        @keyframes colorPulse{
-            0%{color:#ff6b6b;text-shadow:0 0 10px rgba(255,107,107,0.5)}
-            20%{color:#ffd93d;text-shadow:0 0 15px rgba(255,217,61,0.6)}
-            40%{color:#6bcb77;text-shadow:0 0 15px rgba(107,203,119,0.6)}
-            60%{color:#4d96ff;text-shadow:0 0 15px rgba(77,150,255,0.6)}
-            80%{color:#9b59b6;text-shadow:0 0 15px rgba(155,89,182,0.6)}
-            100%{color:#ff6b6b;text-shadow:0 0 10px rgba(255,107,107,0.5)}
-        }
-        @keyframes iconPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
-        
-        .search-box{background:var(--card);border-radius:14px;padding:12px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05)}
-        .search-row{display:flex;gap:6px;flex-wrap:wrap}
-        .search-row input{flex:1;min-width:80px;padding:10px 14px;border:none;border-radius:10px;font-size:14px;background:rgba(255,255,255,0.08);color:#fff;outline:none}
-        .search-row input:focus{background:rgba(255,255,255,0.13);box-shadow:0 0 20px rgba(255,215,0,0.06)}
+        .search-box{background:rgba(255,255,255,0.05);border-radius:14px;padding:14px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05)}
+        .search-row{display:flex;gap:8px;flex-wrap:wrap}
+        .search-row input{flex:1;min-width:100px;padding:11px 14px;border:none;border-radius:10px;font-size:14px;background:rgba(255,255,255,0.08);color:#fff;outline:none}
+        .search-row input:focus{background:rgba(255,255,255,0.13)}
         .search-row input::placeholder{color:#555}
-        .search-row button{padding:10px 12px;border:none;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:0.2s}
+        .search-row button{padding:11px 14px;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;transition:0.2s}
         .search-row button:active{transform:scale(0.95)}
-        .btn-search{background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e}
-        .btn-singer{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff}
+        .btn-search{background:linear-gradient(135deg,#f7971e,#ffd200);color:#1a1a2e}
         .btn-fav{background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff}
         .btn-downloaded{background:linear-gradient(135deg,#17a2b8,#0d6efd);color:#fff}
         
-        .quick-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
-        .quick-tags button{padding:4px 10px;border:none;border-radius:12px;font-size:10px;cursor:pointer;background:rgba(255,255,255,0.05);color:#aaa;transition:0.2s}
-        .quick-tags button:active{background:rgba(255,215,0,0.15);color:#ffd700;transform:scale(0.95)}
+        .quick-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+        .quick-tags button{padding:4px 12px;border:none;border-radius:14px;font-size:11px;cursor:pointer;background:rgba(255,255,255,0.05);color:#aaa;transition:0.2s}
+        .quick-tags button:active{background:rgba(255,215,0,0.15);color:#ffd700}
         
-        .tabs{display:flex;gap:3px;margin-bottom:10px;background:var(--card);border-radius:10px;padding:3px;border:1px solid rgba(255,255,255,0.04)}
-        .tabs button{flex:1;padding:8px;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:0.2s;background:transparent;color:#666}
-        .tabs button.active{background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e}
+        .tabs{display:flex;gap:4px;margin-bottom:12px;background:rgba(255,255,255,0.05);border-radius:12px;padding:4px;border:1px solid rgba(255,255,255,0.04)}
+        .tabs button{flex:1;padding:9px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:0.2s;background:transparent;color:#666}
+        .tabs button.active{background:linear-gradient(135deg,#f7971e,#ffd200);color:#1a1a2e}
         .tabs button:active{transform:scale(0.95)}
         
-        .song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
-        .song-card{background:var(--card);border-radius:12px;padding:14px 12px;text-align:center;border:1px solid rgba(255,255,255,0.04);transition:all 0.25s;cursor:pointer;position:relative;min-height:95px;display:flex;flex-direction:column;justify-content:center;align-items:center}
+        .song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+        .song-card{background:rgba(255,255,255,0.05);border-radius:14px;padding:16px 14px;text-align:center;border:1px solid rgba(255,255,255,0.04);transition:all 0.25s;cursor:pointer;position:relative;min-height:105px;display:flex;flex-direction:column;justify-content:center;align-items:center}
         .song-card:active{transform:scale(0.96);background:rgba(255,255,255,0.08)}
         .song-card.playing{background:rgba(255,215,0,0.12);border-color:rgba(255,215,0,0.25);box-shadow:0 0 30px rgba(255,215,0,0.05)}
-        .song-card .card-icon{font-size:24px;margin-bottom:3px;opacity:0.5;transition:all 0.3s}
-        .song-card.playing .card-icon{animation:colorPulse 1.8s ease-in-out infinite, iconPulse 1s ease-in-out infinite !important;opacity:1 !important}
-        .song-card .card-name{font-size:13px;font-weight:600;color:#fff;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-        .song-card .card-singer{font-size:11px;color:var(--text2);margin-top:2px;cursor:pointer}
-        .song-card .card-singer:active{color:#ffd700}
-        .song-card .card-actions{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;justify-content:center}
-        .song-card .card-actions button{padding:3px 10px;border:none;border-radius:6px;font-size:10px;cursor:pointer;transition:0.2s}
+        .song-card .card-icon{font-size:28px;margin-bottom:4px;opacity:0.5}
+        .song-card.playing .card-icon{animation:pulse 1.5s ease-in-out infinite;opacity:1}
+        @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+        .song-card .card-name{font-size:14px;font-weight:600;color:#fff;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        .song-card .card-singer{font-size:12px;color:#888;margin-top:3px}
+        .song-card .card-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+        .song-card .card-actions button{padding:4px 12px;border:none;border-radius:8px;font-size:11px;cursor:pointer;transition:0.2s}
         .song-card .card-actions button:active{transform:scale(0.9)}
         .card-btn-download{background:#28a745;color:#fff}
-        .card-btn-fav{background:#e74c3c;color:#fff;font-size:13px;padding:3px 7px;border-radius:6px;border:none;cursor:pointer}
+        .card-btn-fav{background:#e74c3c;color:#fff;font-size:14px;padding:4px 8px;border-radius:8px;border:none;cursor:pointer}
         .card-btn-fav.active{background:#555}
-        .card-badge{position:absolute;top:4px;right:4px;font-size:8px;background:rgba(255,215,0,0.15);color:#ffd700;padding:1px 6px;border-radius:6px}
+        .card-badge{position:absolute;top:6px;right:6px;font-size:9px;background:rgba(255,215,0,0.15);color:#ffd700;padding:1px 8px;border-radius:8px}
         .card-badge.local{background:rgba(23,162,184,0.2);color:#17a2b8}
         
-        /* ===== 播放器 ===== */
         .player{position:fixed;bottom:0;left:0;right:0;background:rgba(20,20,40,0.96);backdrop-filter:blur(16px);padding:10px 14px;border-top:1px solid rgba(255,255,255,0.05);z-index:100}
-        .player .top-row{display:flex;align-items:center;gap:8px}
+        .player .top-row{display:flex;align-items:center;gap:10px}
         .player .top-row .info{flex:1;min-width:0}
-        .player .top-row .info .name{font-size:13px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .player .top-row .info .singer{font-size:10px;color:var(--text2)}
-        .player .top-row .btn-play-pause{padding:6px 10px;border:none;border-radius:50%;font-size:16px;cursor:pointer;background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e;width:34px;height:34px;display:flex;align-items:center;justify-content:center}
+        .player .top-row .info .name{font-size:14px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .player .top-row .info .singer{font-size:11px;color:#888}
+        .player .top-row .btn-play-pause{padding:6px 12px;border:none;border-radius:50%;font-size:18px;cursor:pointer;background:linear-gradient(135deg,#f7971e,#ffd200);color:#1a1a2e;width:38px;height:38px;display:flex;align-items:center;justify-content:center}
         .player .top-row .btn-play-pause:active{transform:scale(0.9)}
-        .player .top-row .btn-close{background:transparent;color:#666;border:none;font-size:14px;cursor:pointer;padding:3px 5px}
-        .player .top-row .btn-volume{background:transparent;color:#888;border:none;font-size:16px;cursor:pointer;padding:3px 5px}
-        .player .bottom-row{display:flex;align-items:center;gap:5px;margin-top:3px}
-        .player .bottom-row .btn-mode{background:rgba(255,255,255,0.05);color:#888;border:none;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer;white-space:nowrap}
+        .player .top-row .btn-close{background:transparent;color:#666;border:none;font-size:16px;cursor:pointer;padding:4px 6px}
+        .player .bottom-row{display:flex;align-items:center;gap:6px;margin-top:4px}
+        .player .bottom-row .btn-mode{background:rgba(255,255,255,0.05);color:#888;border:none;border-radius:5px;padding:3px 8px;font-size:10px;cursor:pointer}
         .player .bottom-row .btn-mode.active{background:rgba(255,215,0,0.12);color:#ffd700}
         .player .progress-bar{flex:1;height:3px;background:rgba(255,255,255,0.06);border-radius:2px;cursor:pointer;position:relative}
-        .player .progress-bar .progress-inner{height:100%;background:linear-gradient(90deg,var(--primary),var(--primary2));border-radius:2px;width:0%}
-        .player .time-display{font-size:9px;color:#555;min-width:60px;text-align:right}
+        .player .progress-bar .progress-inner{height:100%;background:linear-gradient(90deg,#f7971e,#ffd200);border-radius:2px;width:0%}
+        .player .time-display{font-size:10px;color:#555;min-width:70px;text-align:right}
         .player audio{display:none}
         
-        .volume-popup{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(20,20,40,0.95);backdrop-filter:blur(12px);padding:14px 20px;border-radius:14px;border:1px solid rgba(255,255,255,0.08);z-index:101;display:none;min-width:150px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.5)}
-        .volume-popup.show{display:block;animation:fadeUp 0.25s ease}
-        @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
-        .volume-popup .vol-icon{font-size:24px;margin-bottom:4px}
-        .volume-popup .vol-label{font-size:10px;color:#888;margin-bottom:4px}
-        .volume-popup input[type=range]{width:100%;height:3px;-webkit-appearance:none;background:linear-gradient(90deg,var(--primary),var(--primary2));border-radius:2px;outline:none}
-        .volume-popup input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#ffd700;cursor:pointer;box-shadow:0 0 10px rgba(255,215,0,0.3)}
-        .volume-popup .vol-value{font-size:12px;color:#fff;margin-top:4px}
-        
-        .loading{display:none;text-align:center;padding:25px}
-        .loading .spinner{width:28px;height:28px;border:3px solid rgba(255,255,255,0.06);border-top:3px solid #ffd700;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto}
-        @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
-        
-        .empty{text-align:center;padding:30px;color:#555;font-size:13px}
-        .footer-text{text-align:center;padding:10px 0 4px;color:#444;font-size:10px;border-top:1px solid rgba(255,255,255,0.03);margin-top:10px}
-        
-        .toast{position:fixed;top:15px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#fff;padding:8px 20px;border-radius:10px;font-size:13px;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none;max-width:90%}
+        .empty{text-align:center;padding:40px;color:#555;font-size:14px}
+        .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#fff;padding:10px 24px;border-radius:10px;font-size:14px;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none}
         .toast.show{opacity:1}
         
         .waiting-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;display:none;justify-content:center;align-items:center;flex-direction:column}
         .waiting-overlay.show{display:flex}
         .waiting-overlay .spinner-big{width:50px;height:50px;border:4px solid rgba(255,255,255,0.1);border-top:4px solid #ffd700;border-radius:50%;animation:spin 1s linear infinite}
-        .waiting-overlay .waiting-text{color:#fff;font-size:16px;margin-top:16px;animation:pulseText 1s ease-in-out infinite}
-        @keyframes pulseText{0%,100%{opacity:1}50%{opacity:0.5}}
-        .waiting-overlay .waiting-time{color:#ffd700;font-size:13px;margin-top:6px}
+        @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+        .waiting-overlay .waiting-text{color:#fff;font-size:18px;margin-top:20px}
+        .waiting-overlay .waiting-time{color:#ffd700;font-size:14px;margin-top:8px}
         
         @media(max-width:480px){
-            .song-grid{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
-            .song-card{padding:10px 8px;min-height:80px}
-            .song-card .card-name{font-size:12px}
-            .search-row input{min-width:60px;font-size:12px;padding:8px 10px}
-            .search-row button{padding:8px 10px;font-size:11px}
-            .header h1{font-size:20px;white-space:nowrap}
-            .player{padding:8px 10px}
-            .player .top-row .btn-play-pause{width:30px;height:30px;font-size:14px}
-            .volume-popup{min-width:120px;padding:12px 16px;bottom:70px}
-            .music-icon-pulse{font-size:20px}
+            .song-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+            .song-card{padding:12px 10px;min-height:90px}
+            .search-row input{min-width:70px;font-size:13px;padding:9px 12px}
+            .search-row button{padding:9px 12px;font-size:12px}
+            .header h1{font-size:22px}
+            .player{padding:8px 12px}
+            .player .top-row .btn-play-pause{width:34px;height:34px;font-size:16px}
         }
-        @media(max-width:360px){.song-grid{grid-template-columns:repeat(2,1fr)}}
-        @media(max-width:380px){.header h1{font-size:16px;white-space:nowrap}}
     </style>
 </head>
 <body>
@@ -298,20 +306,9 @@ HTML_TEMPLATE = '''
     <div class="waiting-time" id="waitingTime">等待 0 秒</div>
 </div>
 
-<div class="volume-popup" id="volumePopup">
-    <div class="vol-icon" id="volIcon">🔊</div>
-    <div class="vol-label">音量</div>
-    <input type="range" id="volumeSlider" min="0" max="100" value="70">
-    <div class="vol-value" id="volValue">70%</div>
-</div>
-
 <div class="container">
     <div class="header" onclick="goHome()">
-        <h1>
-            <span class="music-icon-pulse">🎵</span>
-            最酷音乐下歌精灵
-            <span class="version">v2.1</span>
-        </h1>
+        <h1>🎵 最酷音乐下歌精灵 <span class="version">v2.1</span></h1>
         <div class="sub">🎧 点击卡片立即播放 · 直接下载</div>
         <div class="lyric">✨ "{{ lyric }}"</div>
     </div>
@@ -319,10 +316,9 @@ HTML_TEMPLATE = '''
     <div class="search-box">
         <div class="search-row">
             <input type="text" id="keyword" placeholder="搜索歌曲或歌手..." onkeydown="if(event.key==='Enter') searchMusic()">
-            <button class="btn-search" onclick="searchMusic()">🔍</button>
-            <button class="btn-singer" onclick="searchBySinger()">🎤</button>
-            <button class="btn-fav" onclick="showFavorites()">❤️</button>
-            <button class="btn-downloaded" onclick="showDownloaded()">📂</button>
+            <button class="btn-search" onclick="searchMusic()">🔍 搜索</button>
+            <button class="btn-fav" onclick="showFavorites()">❤️ 收藏</button>
+            <button class="btn-downloaded" onclick="showDownloaded()">📂 已下载</button>
         </div>
         <div class="quick-tags" id="quickTags"></div>
     </div>
@@ -334,14 +330,10 @@ HTML_TEMPLATE = '''
         <button onclick="switchTab('downloaded')">📂 已下载</button>
     </div>
     
-    <div id="loading" class="loading"><div class="spinner"></div><p style="color:#888;margin-top:4px;font-size:12px">加载中...</p></div>
-    
     <div id="songGrid" class="song-grid"></div>
-    
-    <div class="footer-text">🎵 最酷音乐下歌精灵 v2.1 · 点击卡片立即播放</div>
 </div>
 
-<!-- ===== 播放器 ===== -->
+<!-- 播放器 -->
 <div class="player" id="player" style="display:none">
     <div class="top-row">
         <button class="btn-close" onclick="closePlayer()">✕</button>
@@ -349,7 +341,6 @@ HTML_TEMPLATE = '''
             <div class="name" id="playerName">歌曲名</div>
             <div class="singer" id="playerSinger">歌手</div>
         </div>
-        <button class="btn-volume" id="volumeBtn" onclick="toggleVolume(event)">🔊</button>
         <button class="btn-play-pause" id="playPauseBtn" onclick="togglePlay()">▶️</button>
     </div>
     <div class="bottom-row">
@@ -373,81 +364,28 @@ let currentSongs = [];
 let currentTab = 'recommend';
 let favorites = [];
 let currentPlayIndex = -1;
-let playMode = 'order'; // order, single, random
+let playMode = 'order';
 let isPlaying = false;
-let shuffledIndices = [];
-let shuffleIndex = 0;
-let volumeTimeout = null;
+let audioElement = null;
 let waitingTimer = null;
 let waitingSeconds = 0;
-let audioElement = null;
 
 // ==================== Toast ====================
-function showToast(msg, duration) {
+function showToast(msg) {
     const el = document.getElementById('toast');
     el.textContent = msg;
     el.classList.add('show');
     clearTimeout(el._timer);
-    el._timer = setTimeout(() => el.classList.remove('show'), duration || 2500);
+    el._timer = setTimeout(() => el.classList.remove('show'), 2500);
 }
 
-// ==================== 跳转主页 ====================
-function goHome() {
-    window.location.href = '/';
-}
-
-// ==================== 音量控制 ====================
-function toggleVolume(e) {
-    e.stopPropagation();
-    const popup = document.getElementById('volumePopup');
-    if (popup.classList.contains('show')) {
-        popup.classList.remove('show');
-        clearTimeout(volumeTimeout);
-    } else {
-        popup.classList.add('show');
-        clearTimeout(volumeTimeout);
-        volumeTimeout = setTimeout(() => popup.classList.remove('show'), 4000);
-    }
-}
-
-function setupVolumeControl() {
-    const slider = document.getElementById('volumeSlider');
-    const valDisplay = document.getElementById('volValue');
-    const icon = document.getElementById('volIcon');
-    if (!audioElement) return;
-    
-    slider.addEventListener('input', function() {
-        const val = parseInt(this.value);
-        valDisplay.textContent = val + '%';
-        audioElement.volume = val / 100;
-        icon.textContent = val > 70 ? '🔊' : val > 30 ? '🔉' : '🔇';
-        clearTimeout(volumeTimeout);
-        volumeTimeout = setTimeout(() => {
-            document.getElementById('volumePopup').classList.remove('show');
-        }, 4000);
-    });
-    
-    // 初始化音量
-    audioElement.volume = 0.7;
-    slider.value = 70;
-    valDisplay.textContent = '70%';
-}
-
-document.addEventListener('click', function(e) {
-    const popup = document.getElementById('volumePopup');
-    const btn = document.getElementById('volumeBtn');
-    if (!popup.contains(e.target) && !btn.contains(e.target)) {
-        popup.classList.remove('show');
-        clearTimeout(volumeTimeout);
-    }
-});
+function goHome() { window.location.href = '/'; }
 
 // ==================== 初始化 ====================
 document.addEventListener('DOMContentLoaded', function() {
     loadRecommend();
     loadQuickTags();
     loadFavoritesFromStorage();
-    // 不自动恢复播放，用户手动点击
 });
 
 function loadQuickTags() {
@@ -476,20 +414,17 @@ function renderSongs(songs, showFavoriteBtn=true, isLocal=false) {
         return;
     }
     currentSongs = songs;
-    shuffledIndices = [];
-    shuffleIndex = 0;
     
     container.innerHTML = songs.map((song, idx) => {
         const fav = isFavorite(song);
         const isCurrent = (idx === currentPlayIndex && audioElement && audioElement.src);
-        const localBadge = isLocal ? '<div class="card-badge local">📂 本地</div>' : '';
-        const badge = isCurrent ? '<div class="card-badge">▶ 播放中</div>' : localBadge;
+        const badge = isCurrent ? '<div class="card-badge">▶ 播放中</div>' : (isLocal ? '<div class="card-badge local">📂 本地</div>' : '');
         return `
         <div class="song-card ${isCurrent ? 'playing' : ''}" id="card-${idx}" onclick="playSong(${idx})">
             ${badge}
             <div class="card-icon">${isCurrent ? '🎵' : '🎶'}</div>
             <div class="card-name">${song.song}</div>
-            <div class="card-singer" onclick="event.stopPropagation();searchSinger('${song.singer}')">${song.singer}</div>
+            <div class="card-singer">${song.singer}</div>
             <div class="card-actions" onclick="event.stopPropagation();">
                 <button class="card-btn-download" onclick="downloadSong(${idx})">⬇️ 下载</button>
                 ${showFavoriteBtn ? `
@@ -515,19 +450,15 @@ function switchTab(tab) {
 }
 
 function loadRecommend() {
-    showLoading(true);
-    setTimeout(() => { renderSongs(presetSongs); showLoading(false); }, 300);
+    renderSongs(presetSongs);
 }
 
 function searchMusic() {
     const keyword = document.getElementById('keyword').value.trim();
     if (!keyword) return;
-    showLoading(true);
-    document.getElementById('songGrid').innerHTML = '';
     fetch(`/api/search?keyword=${encodeURIComponent(keyword)}`)
         .then(res => res.json())
         .then(data => {
-            showLoading(false);
             if (data.code === 200 && data.data.length > 0) {
                 renderSongs(data.data);
                 switchTab('search');
@@ -535,20 +466,16 @@ function searchMusic() {
                 document.getElementById('songGrid').innerHTML = `<div class="empty">😅 没有找到 "${keyword}"</div>`;
             }
         })
-        .catch(() => { showLoading(false); document.getElementById('songGrid').innerHTML = '<div class="empty">❌ 网络错误</div>'; });
+        .catch(() => { document.getElementById('songGrid').innerHTML = '<div class="empty">❌ 网络错误</div>'; });
 }
 
 function quickSearch(k) { document.getElementById('keyword').value = k; searchMusic(); }
-function searchBySinger() { const s = prompt('请输入歌手名称：'); if(s && s.trim()) { document.getElementById('keyword').value=s; searchMusic(); } }
-function searchSinger(s) { document.getElementById('keyword').value=s; searchMusic(); }
 
 // ==================== 已下载 ====================
 function showDownloaded() {
-    showLoading(true);
     fetch('/api/downloaded')
         .then(res => res.json())
         .then(data => {
-            showLoading(false);
             if (data.code === 200 && data.data.length > 0) {
                 renderSongs(data.data, false, true);
                 switchTab('downloaded');
@@ -557,10 +484,7 @@ function showDownloaded() {
                 switchTab('downloaded');
             }
         })
-        .catch(() => {
-            showLoading(false);
-            document.getElementById('songGrid').innerHTML = '<div class="empty">❌ 加载失败</div>';
-        });
+        .catch(() => { document.getElementById('songGrid').innerHTML = '<div class="empty">❌ 加载失败</div>'; });
 }
 
 // ==================== 收藏 ====================
@@ -569,7 +493,7 @@ function toggleFavorite(idx) {
     if (!song) return;
     const index = favorites.findIndex(s => s.song === song.song && s.singer === song.singer);
     if (index > -1) favorites.splice(index, 1);
-    else favorites.push({song: song.song, singer: song.singer, mid: song.mid || ''});
+    else favorites.push({song: song.song, singer: song.singer});
     saveFavorites();
     showToast(index > -1 ? '已取消收藏' : '❤️ 已收藏');
     if (currentTab === 'favorites') showFavorites();
@@ -578,7 +502,7 @@ function toggleFavorite(idx) {
 
 function showFavorites() {
     if (favorites.length === 0) {
-        document.getElementById('songGrid').innerHTML = '<div class="empty">💔 还没有收藏歌曲<br><span style="font-size:11px;color:#555">点击 🤍 收藏</span></div>';
+        document.getElementById('songGrid').innerHTML = '<div class="empty">💔 还没有收藏歌曲</div>';
         switchTab('favorites');
         return;
     }
@@ -597,9 +521,6 @@ function showWaiting(show) {
         waitingTimer = setInterval(() => {
             waitingSeconds++;
             document.getElementById('waitingTime').textContent = '等待 ' + waitingSeconds + ' 秒';
-            if (waitingSeconds >= 6) {
-                clearInterval(waitingTimer);
-            }
         }, 1000);
     } else {
         overlay.classList.remove('show');
@@ -607,8 +528,8 @@ function showWaiting(show) {
     }
 }
 
-// ==================== 播放核心（使用 HTML5 Audio） ====================
-function playSong(idx, seekTime) {
+// ==================== 播放 ====================
+function playSong(idx) {
     if (idx < 0 || idx >= currentSongs.length) return;
     const song = currentSongs[idx];
     if (!song) return;
@@ -616,29 +537,26 @@ function playSong(idx, seekTime) {
     showWaiting(true);
     currentPlayIndex = idx;
     
-    // 更新播放器UI
-    const player = document.getElementById('player');
     document.getElementById('playerName').textContent = song.song;
     document.getElementById('playerSinger').textContent = song.singer;
     
-    // 更新卡片高亮
     document.querySelectorAll('.song-card').forEach(el => el.classList.remove('playing'));
     const el = document.getElementById(`card-${idx}`);
     if (el) el.classList.add('playing');
     
-    // 获取播放链接
     let playUrl = '';
     if (song.mid && song.mid.startsWith('local_')) {
         playUrl = `/api/local/${encodeURIComponent(song.file)}`;
+    } else if (song.mid) {
+        playUrl = `/api/stream/${encodeURIComponent(song.mid)}`;
     } else {
-        playUrl = `/api/stream/${encodeURIComponent(song.mid || '')}`;
+        // 如果没有mid，用歌曲名搜索
+        playUrl = `/api/stream/search?name=${encodeURIComponent(song.song)}&singer=${encodeURIComponent(song.singer)}`;
     }
     
-    // 创建或复用 Audio 对象
     if (!audioElement) {
         audioElement = new Audio();
         setupAudioEvents();
-        setupVolumeControl();
     }
     
     audioElement.src = playUrl;
@@ -649,27 +567,21 @@ function playSong(idx, seekTime) {
         if (!loaded) {
             loaded = true;
             showWaiting(false);
-            audioElement.play().then(() => {
-                isPlaying = true;
-                player.style.display = 'block';
-                document.getElementById('playPauseBtn').textContent = '⏸️';
-                showToast(`▶️ 正在播放: ${song.song}`);
-            }).catch(() => {
-                showWaiting(false);
-                showToast('点击播放按钮开始播放');
-            });
+            audioElement.play();
+            isPlaying = true;
+            document.getElementById('player').style.display = 'block';
+            document.getElementById('playPauseBtn').textContent = '⏸️';
+            showToast(`▶️ 正在播放: ${song.song}`);
         }
     };
     
-    // 6秒超时
     setTimeout(() => {
         showWaiting(false);
         if (!loaded) {
             audioElement.play().catch(() => {});
             isPlaying = true;
-            player.style.display = 'block';
+            document.getElementById('player').style.display = 'block';
             document.getElementById('playPauseBtn').textContent = '⏸️';
-            showToast(`▶️ 正在播放: ${song.song}`);
         }
     }, 6000);
     
@@ -696,10 +608,7 @@ function togglePlay() {
 
 function closePlayer() {
     document.getElementById('player').style.display = 'none';
-    if (audioElement) {
-        audioElement.pause();
-        audioElement.src = '';
-    }
+    if (audioElement) { audioElement.pause(); audioElement.src = ''; }
     isPlaying = false;
 }
 
@@ -712,16 +621,13 @@ function seekTo(e) {
     }
 }
 
-// ===== 播放模式切换 =====
 function toggleMode() {
     const modes = ['order', 'single', 'random'];
     const labels = ['🔁 列表', '🔂 单曲', '🎲 随机'];
     const idx = modes.indexOf(playMode);
     playMode = modes[(idx + 1) % 3];
-    const btn = document.getElementById('modeBtn');
-    const labelsMap = {'order':'🔁 列表', 'single':'🔂 单曲', 'random':'🎲 随机'};
-    btn.textContent = labelsMap[playMode];
-    showToast('播放模式: ' + labelsMap[playMode]);
+    document.getElementById('modeBtn').textContent = labels[modes.indexOf(playMode)];
+    showToast('播放模式: ' + labels[modes.indexOf(playMode)]);
 }
 
 function getNextIndex() {
@@ -738,26 +644,12 @@ function getNextIndex() {
     return next;
 }
 
-function skipToNext() {
-    if (!currentSongs.length) return;
-    let nextIndex = getNextIndex();
-    if (nextIndex === currentPlayIndex && playMode !== 'single') {
-        if (currentSongs.length === 1) nextIndex = 0;
-    }
-    if (nextIndex !== currentPlayIndex || playMode === 'single') {
-        playSong(nextIndex);
-    } else {
-        showToast("没有更多歌曲");
-    }
-}
-
 function setupAudioEvents() {
     if (!audioElement) return;
     
     audioElement.ontimeupdate = function() {
         if (audioElement.duration) {
-            const pct = (audioElement.currentTime / audioElement.duration) * 100;
-            document.getElementById('progressInner').style.width = pct + '%';
+            document.getElementById('progressInner').style.width = (audioElement.currentTime / audioElement.duration * 100) + '%';
             document.getElementById('currentTime').textContent = formatTime(audioElement.currentTime);
             document.getElementById('totalTime').textContent = formatTime(audioElement.duration);
         }
@@ -769,23 +661,8 @@ function setupAudioEvents() {
             audioElement.play();
         } else {
             const nextIdx = getNextIndex();
-            if (nextIdx !== currentPlayIndex) {
-                playSong(nextIdx);
-            } else {
-                isPlaying = false;
-                document.getElementById('playPauseBtn').textContent = '▶️';
-            }
+            if (nextIdx !== currentPlayIndex) playSong(nextIdx);
         }
-    };
-    
-    audioElement.onplay = function() {
-        isPlaying = true;
-        document.getElementById('playPauseBtn').textContent = '⏸️';
-    };
-    
-    audioElement.onpause = function() {
-        isPlaying = false;
-        document.getElementById('playPauseBtn').textContent = '▶️';
     };
 }
 
@@ -796,7 +673,7 @@ function formatTime(seconds) {
     return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
 }
 
-// ==================== 下载（直接下载到手机） ====================
+// ==================== 下载 ====================
 function downloadSong(idx) {
     const song = currentSongs[idx];
     if (!song) return;
@@ -804,20 +681,15 @@ function downloadSong(idx) {
     let downloadUrl = '';
     if (song.mid && song.mid.startsWith('local_')) {
         downloadUrl = `/api/local/${encodeURIComponent(song.file)}?download=true`;
+    } else if (song.mid) {
+        downloadUrl = `/api/download/direct/${encodeURIComponent(song.mid)}?name=${encodeURIComponent(song.song + ' - ' + song.singer)}`;
     } else {
-        downloadUrl = `/api/download/direct/${encodeURIComponent(song.mid || '')}?name=${encodeURIComponent(song.song + ' - ' + song.singer)}`;
+        downloadUrl = `/api/download/direct/search?name=${encodeURIComponent(song.song)}&singer=${encodeURIComponent(song.singer)}`;
     }
     
     window.open(downloadUrl, '_blank');
-    showToast(`⬇️ 正在下载: ${song.song}`, 3000);
-    
-    setTimeout(() => {
-        showToast(`✅ 下载完成: ${song.song}`, 4000);
-    }, 5000);
-}
-
-function showLoading(show) {
-    document.getElementById('loading').style.display = show ? 'block' : 'none';
+    showToast(`⬇️ 正在下载: ${song.song}`);
+    setTimeout(() => showToast(`✅ 下载完成: ${song.song}`), 5000);
 }
 </script>
 </body>
@@ -830,11 +702,46 @@ function showLoading(show) {
 def stream_music(mid):
     song_url = get_song_url(mid)
     if not song_url:
-        return jsonify({'code': 404, 'message': '暂无播放源，请下载后本地播放'}), 404
-    response = proxy_stream(song_url)
-    if response:
-        return response
-    return jsonify({'code': 404, 'message': '播放失败'}), 404
+        return jsonify({'code': 404, 'message': '无法获取播放链接'}), 404
+    try:
+        response = requests.get(song_url, stream=True, timeout=30)
+        response.raise_for_status()
+        def generate():
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+        return Response(stream_with_context(generate()), 
+                       status=response.status_code,
+                       headers={'Content-Type': 'audio/mpeg', 'Cache-Control': 'public, max-age=86400'})
+    except Exception as e:
+        return jsonify({'code': 404, 'message': '播放失败'}), 404
+
+@app.route('/api/stream/search')
+def stream_search():
+    name = request.args.get('name', '')
+    singer = request.args.get('singer', '')
+    if not name:
+        return jsonify({'code': 404, 'message': '请输入歌曲名'}), 404
+    # 尝试通过网易云搜索
+    try:
+        search_url = f"https://music.163.com/api/search/get/web?s={quote(name + ' ' + singer)}&type=1&limit=1"
+        resp = requests.get(search_url, timeout=10)
+        data = resp.json()
+        if data.get('result', {}).get('songs'):
+            song_id = data['result']['songs'][0]['id']
+            play_url = f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
+            response = requests.get(play_url, stream=True, timeout=30)
+            response.raise_for_status()
+            def generate():
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+            return Response(stream_with_context(generate()),
+                           status=response.status_code,
+                           headers={'Content-Type': 'audio/mpeg', 'Cache-Control': 'public, max-age=86400'})
+    except Exception as e:
+        pass
+    return jsonify({'code': 404, 'message': '无法获取播放链接'}), 404
 
 @app.route('/api/download/direct/<mid>')
 def download_direct(mid):
@@ -842,13 +749,54 @@ def download_direct(mid):
     song_url = get_song_url(mid)
     if not song_url:
         return jsonify({'code': 404, 'message': '无法获取下载链接'}), 404
-    if mid.startswith('preset_'):
-        return jsonify({'code': 404, 'message': '预设歌曲暂无下载源'}), 404
-    filename = f"{song_name}.mp3"
-    response = proxy_stream(song_url, as_attachment=True, filename=filename)
-    if response:
-        return response
-    return jsonify({'code': 404, 'message': '下载失败'}), 404
+    try:
+        filename = f"{song_name}.mp3"
+        response = requests.get(song_url, stream=True, timeout=30)
+        response.raise_for_status()
+        def generate():
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+        return Response(stream_with_context(generate()),
+                       status=response.status_code,
+                       headers={
+                           'Content-Type': 'audio/mpeg',
+                           'Content-Disposition': f"attachment; filename*=UTF-8''{quote(filename)}",
+                           'Cache-Control': 'public, max-age=86400'
+                       })
+    except Exception as e:
+        return jsonify({'code': 404, 'message': '下载失败'}), 404
+
+@app.route('/api/download/direct/search')
+def download_direct_search():
+    name = request.args.get('name', '')
+    singer = request.args.get('singer', '')
+    if not name:
+        return jsonify({'code': 404, 'message': '请输入歌曲名'}), 404
+    try:
+        search_url = f"https://music.163.com/api/search/get/web?s={quote(name + ' ' + singer)}&type=1&limit=1"
+        resp = requests.get(search_url, timeout=10)
+        data = resp.json()
+        if data.get('result', {}).get('songs'):
+            song_id = data['result']['songs'][0]['id']
+            play_url = f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
+            filename = f"{name} - {singer}.mp3"
+            response = requests.get(play_url, stream=True, timeout=30)
+            response.raise_for_status()
+            def generate():
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+            return Response(stream_with_context(generate()),
+                           status=response.status_code,
+                           headers={
+                               'Content-Type': 'audio/mpeg',
+                               'Content-Disposition': f"attachment; filename*=UTF-8''{quote(filename)}",
+                               'Cache-Control': 'public, max-age=86400'
+                           })
+    except Exception as e:
+        pass
+    return jsonify({'code': 404, 'message': '无法获取下载链接'}), 404
 
 @app.route('/api/local/<path:filename>')
 def play_local(filename):
@@ -887,6 +835,5 @@ if __name__ == '__main__':
     print(f"  🌐 访问地址: http://localhost:{port}")
     print("  🎧 点击卡片立即播放 · 直接下载")
     print("  📂 已下载歌曲列表")
-    print("  🏠 点击标题返回主页")
     print("="*60)
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
