@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify, render_template_string, send_file, Response, stream_with_context
+from flask import Flask, request, jsonify, render_template_string, send_file
 import requests
 import os
 import time
@@ -10,6 +10,7 @@ import threading
 import json
 import re
 from datetime import datetime
+from urllib.parse import quote
 
 app = Flask(__name__)
 
@@ -25,7 +26,6 @@ else:
     FAVORITES = []
 
 download_tasks = {}
-song_url_cache = {}
 
 # ==================== 预置推荐歌单 ====================
 PRESET_SONGS = [
@@ -70,13 +70,99 @@ LYRICS = [
     "最美的不是下雨天，是曾与你躲过雨的屋檐。——《不能说的秘密》",
     "天青色等烟雨，而我在等你。——《青花瓷》",
     "我一路向北，离开有你的季节。——《一路向北》",
-    "你说你有点难追，想让我知难而退。——《告白气球》",
 ]
 
 def get_random_lyric():
     return random.choice(LYRICS)
 
+# ==================== 核心：使用终端版相同的下载逻辑 ====================
+def get_song_url(mid):
+    """和终端版完全相同的下载链接获取"""
+    url = f"https://api.vkeys.cn/v2/music/tencent?mid={mid}&quality=8"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if data['code'] == 200 and data.get('data'):
+            return data['data'].get('url')
+        return None
+    except Exception as e:
+        print(f"获取下载链接失败: {e}")
+        return None
+
+def download_song_direct(url, save_path, song_name):
+    """和终端版相同的下载函数"""
+    try:
+        # 获取文件大小
+        response = requests.head(url, timeout=10)
+        response.raise_for_status()
+        total_size = int(response.headers.get('content-length', 0))
+        
+        if total_size == 0:
+            response = requests.get(url, stream=True, timeout=10)
+            total_size = int(response.headers.get('content-length', 0))
+        
+        if total_size == 0:
+            print(f"无法获取文件大小，使用流式下载")
+            response = requests.get(url, stream=True, timeout=30)
+            with open(save_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            return True
+        
+        # 带进度条下载
+        response = requests.get(url, stream=True, timeout=30)
+        response.raise_for_status()
+        
+        with open(save_path, 'wb') as f:
+            downloaded = 0
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+        return True
+    except Exception as e:
+        print(f"下载失败: {e}")
+        return False
+
+def download_song_task(task_id, song):
+    try:
+        download_tasks[task_id] = {'status': 'downloading', 'progress': 0, 'song': song['song']}
+        
+        # 获取下载链接
+        song_url = get_song_url(song['mid'])
+        if not song_url:
+            download_tasks[task_id] = {'status': 'failed', 'error': '无法获取下载链接'}
+            return
+        
+        safe_singer = re.sub(r'[<>:"/\\|?*]', '_', song['singer'])
+        safe_song = re.sub(r'[<>:"/\\|?*]', '_', song['song'])
+        file_name = f"{safe_singer} - {safe_song}.mp3"
+        save_path = os.path.join(DOWNLOAD_DIR, file_name)
+        
+        # 使用和终端版相同的下载函数
+        success = download_song_direct(song_url, save_path, song['song'])
+        
+        if success and os.path.exists(save_path):
+            file_size = os.path.getsize(save_path)
+            if file_size > 10240:  # 大于10KB
+                download_tasks[task_id] = {
+                    'status': 'completed',
+                    'progress': 100,
+                    'file': file_name,
+                    'path': save_path
+                }
+            else:
+                os.remove(save_path)
+                download_tasks[task_id] = {'status': 'failed', 'error': f'文件太小 ({file_size}字节)'}
+        else:
+            download_tasks[task_id] = {'status': 'failed', 'error': '下载失败'}
+    except Exception as e:
+        download_tasks[task_id] = {'status': 'failed', 'error': str(e)}
+
 def search_music(keyword):
+    """搜索音乐"""
     try:
         results = []
         keyword_lower = keyword.lower()
@@ -85,6 +171,7 @@ def search_music(keyword):
                 results.append(song.copy())
         if results:
             return results
+        
         url = f"https://api.vkeys.cn/v2/music/tencent?word={keyword}"
         response = requests.get(url, timeout=10)
         data = response.json()
@@ -103,58 +190,7 @@ def search_music(keyword):
         print(f"搜索失败: {e}")
         return []
 
-def get_song_url(mid):
-    if mid in song_url_cache:
-        return song_url_cache[mid]
-    try:
-        if mid.startswith('preset_'):
-            url = f"https://example.com/music/{mid}.mp3"
-            song_url_cache[mid] = url
-            return url
-        url = f"https://api.vkeys.cn/v2/music/tencent?mid={mid}&quality=8"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        if data['code'] == 200 and data.get('data'):
-            song_url = data['data'].get('url')
-            if song_url:
-                song_url_cache[mid] = song_url
-                return song_url
-        return None
-    except Exception as e:
-        print(f"获取下载链接失败: {e}")
-        return None
-
-def download_song_task(task_id, song):
-    try:
-        download_tasks[task_id] = {'status': 'downloading', 'progress': 0, 'song': song['song']}
-        song_url = get_song_url(song['mid'])
-        if not song_url:
-            download_tasks[task_id] = {'status': 'failed', 'error': '无法获取下载链接'}
-            return
-        safe_singer = re.sub(r'[<>:"/\\|?*]', '_', song['singer'])
-        safe_song = re.sub(r'[<>:"/\\|?*]', '_', song['song'])
-        file_name = f"{safe_singer} - {safe_song}.mp3"
-        save_path = os.path.join(DOWNLOAD_DIR, file_name)
-        response = requests.get(song_url, stream=True, timeout=30)
-        total_size = int(response.headers.get('content-length', 0))
-        with open(save_path, 'wb') as f:
-            downloaded = 0
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total_size > 0:
-                        progress = int((downloaded / total_size) * 100)
-                        download_tasks[task_id]['progress'] = progress
-        download_tasks[task_id] = {
-            'status': 'completed',
-            'progress': 100,
-            'file': file_name,
-            'path': save_path
-        }
-    except Exception as e:
-        download_tasks[task_id] = {'status': 'failed', 'error': str(e)}
-
+# ==================== 播放流式代理 ====================
 def proxy_stream(url):
     try:
         response = requests.get(url, stream=True, timeout=30)
@@ -178,8 +214,7 @@ def proxy_stream(url):
         print(f"流式播放失败: {e}")
         return None
 
-# ==================== HTML 模板 ====================
-
+# ==================== 模板 ====================
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html>
@@ -199,15 +234,7 @@ HTML_TEMPLATE = '''
         .header .version{display:inline-block;background:rgba(255,215,0,0.12);color:#ffd700;padding:2px 12px;border-radius:12px;font-size:11px;margin-top:3px}
         .header .lyric{color:#ffd700;font-size:12px;margin-top:6px;opacity:0.5;font-style:italic}
         
-        /* ===== 🎵 炫彩脉冲音乐图标 - 更明显 ===== */
-        .music-icon-pulse{
-            display:inline-block;
-            font-size:36px;
-            margin-right:8px;
-            animation:colorPulse 1.8s ease-in-out infinite, iconPulse 1s ease-in-out infinite;
-            vertical-align:middle;
-            filter: drop-shadow(0 0 15px rgba(255,215,0,0.3));
-        }
+        .music-icon-pulse{display:inline-block;font-size:36px;margin-right:8px;animation:colorPulse 1.8s ease-in-out infinite, iconPulse 1s ease-in-out infinite;vertical-align:middle;filter:drop-shadow(0 0 15px rgba(255,215,0,0.3))}
         @keyframes colorPulse{
             0%{color:#ff6b6b;text-shadow:0 0 20px rgba(255,107,107,0.6)}
             15%{color:#ffd93d;text-shadow:0 0 25px rgba(255,217,61,0.7)}
@@ -217,21 +244,13 @@ HTML_TEMPLATE = '''
             75%{color:#ff6b6b;text-shadow:0 0 20px rgba(255,107,107,0.6)}
             100%{color:#ffd93d;text-shadow:0 0 20px rgba(255,217,61,0.6)}
         }
-        @keyframes iconPulse{
-            0%,100%{transform:scale(1) rotate(0deg)}
-            50%{transform:scale(1.2) rotate(5deg)}
-        }
-        /* 卡片播放中图标炫彩 */
-        .song-card.playing .card-icon{
-            animation:colorPulse 1.5s ease-in-out infinite, iconPulse 0.8s ease-in-out infinite !important;
-            opacity:1 !important;
-            font-size:34px !important;
-        }
+        @keyframes iconPulse{0%,100%{transform:scale(1) rotate(0deg)}50%{transform:scale(1.2) rotate(5deg)}}
+        .song-card.playing .card-icon{animation:colorPulse 1.5s ease-in-out infinite, iconPulse 0.8s ease-in-out infinite !important;opacity:1 !important;font-size:34px !important}
         
         .search-box{background:var(--card);border-radius:14px;padding:14px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05)}
         .search-row{display:flex;gap:8px;flex-wrap:wrap}
         .search-row input{flex:1;min-width:100px;padding:11px 14px;border:none;border-radius:10px;font-size:14px;background:rgba(255,255,255,0.08);color:#fff;outline:none}
-        .search-row input:focus{background:rgba(255,255,255,0.13);box-shadow:0 0 20px rgba(255,215,0,0.06)}
+        .search-row input:focus{background:rgba(255,255,255,0.13)}
         .search-row input::placeholder{color:#555}
         .search-row button{padding:11px 16px;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;transition:0.2s}
         .search-row button:active{transform:scale(0.95)}
@@ -241,7 +260,7 @@ HTML_TEMPLATE = '''
         
         .quick-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
         .quick-tags button{padding:4px 12px;border:none;border-radius:14px;font-size:11px;cursor:pointer;background:rgba(255,255,255,0.05);color:#aaa;transition:0.2s}
-        .quick-tags button:active{background:rgba(255,215,0,0.15);color:#ffd700;transform:scale(0.95)}
+        .quick-tags button:active{background:rgba(255,215,0,0.15);color:#ffd700}
         
         .tabs{display:flex;gap:4px;margin-bottom:12px;background:var(--card);border-radius:12px;padding:4px;border:1px solid rgba(255,255,255,0.04)}
         .tabs button{flex:1;padding:9px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:0.2s;background:transparent;color:#666}
@@ -251,7 +270,7 @@ HTML_TEMPLATE = '''
         .song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
         .song-card{background:var(--card);border-radius:14px;padding:16px 14px;text-align:center;border:1px solid rgba(255,255,255,0.04);transition:all 0.25s;cursor:pointer;position:relative;min-height:105px;display:flex;flex-direction:column;justify-content:center;align-items:center}
         .song-card:active{transform:scale(0.96);background:rgba(255,255,255,0.08)}
-        .song-card.playing{background:rgba(255,215,0,0.12);border-color:rgba(255,215,0,0.25);box-shadow:0 0 30px rgba(255,215,0,0.05)}
+        .song-card.playing{background:rgba(255,215,0,0.12);border-color:rgba(255,215,0,0.25)}
         .song-card .card-icon{font-size:28px;margin-bottom:4px;opacity:0.5;transition:all 0.3s}
         .song-card .card-name{font-size:14px;font-weight:600;color:#fff;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
         .song-card .card-singer{font-size:12px;color:var(--text2);margin-top:3px;cursor:pointer}
@@ -286,13 +305,13 @@ HTML_TEMPLATE = '''
         .player .time-display{font-size:10px;color:#555;min-width:70px;text-align:right}
         .player audio{display:none}
         
-        .volume-popup{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(20,20,40,0.95);backdrop-filter:blur(12px);padding:18px 24px;border-radius:16px;border:1px solid rgba(255,255,255,0.08);z-index:101;display:none;min-width:180px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.5)}
+        .volume-popup{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(20,20,40,0.95);backdrop-filter:blur(12px);padding:18px 24px;border-radius:16px;border:1px solid rgba(255,255,255,0.08);z-index:101;display:none;min-width:180px;text-align:center}
         .volume-popup.show{display:block;animation:fadeUp 0.25s ease}
         @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
         .volume-popup .vol-icon{font-size:28px;margin-bottom:8px}
         .volume-popup .vol-label{font-size:12px;color:#888;margin-bottom:6px}
         .volume-popup input[type=range]{width:100%;height:4px;-webkit-appearance:none;background:linear-gradient(90deg,var(--primary),var(--primary2));border-radius:2px;outline:none}
-        .volume-popup input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#ffd700;cursor:pointer;box-shadow:0 0 10px rgba(255,215,0,0.3)}
+        .volume-popup input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#ffd700;cursor:pointer}
         .volume-popup .vol-value{font-size:14px;color:#fff;margin-top:6px}
         
         .loading{display:none;text-align:center;padding:30px}
@@ -304,11 +323,6 @@ HTML_TEMPLATE = '''
         
         .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#fff;padding:10px 24px;border-radius:10px;font-size:14px;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none}
         .toast.show{opacity:1}
-        
-        /* 播放中卡片图标放大 */
-        .song-card.playing .card-icon{
-            font-size:34px !important;
-        }
         
         @media(max-width:480px){
             .song-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
@@ -323,7 +337,6 @@ HTML_TEMPLATE = '''
             .music-icon-pulse{font-size:28px}
         }
         @media(max-width:360px){.song-grid{grid-template-columns:repeat(2,1fr)}}
-        @media(max-width:380px){.header h1{font-size:18px;white-space:nowrap}}
     </style>
 </head>
 <body>
@@ -417,7 +430,6 @@ let shuffleIndex = 0;
 let volumeTimeout = null;
 let playTimeout = null;
 
-// ==================== Toast ====================
 function showToast(msg) {
     const el = document.getElementById('toast');
     el.textContent = msg;
@@ -426,7 +438,6 @@ function showToast(msg) {
     el._timer = setTimeout(() => el.classList.remove('show'), 2500);
 }
 
-// ==================== 音量控制 ====================
 function toggleVolume(e) {
     e.stopPropagation();
     const popup = document.getElementById('volumePopup');
@@ -522,7 +533,6 @@ function loadPlayerState() {
     } catch(e) {}
 }
 
-// ==================== 渲染卡片 ====================
 function renderSongs(songs, showFavoriteBtn=true) {
     const container = document.getElementById('songGrid');
     if (!songs || songs.length === 0) {
@@ -554,7 +564,6 @@ function renderSongs(songs, showFavoriteBtn=true) {
     `}).join('');
 }
 
-// ==================== Tab 切换 ====================
 function switchTab(tab) {
     currentTab = tab;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
@@ -592,7 +601,6 @@ function quickSearch(k) { document.getElementById('keyword').value = k; searchMu
 function searchBySinger() { const s = prompt('请输入歌手名称：'); if(s && s.trim()) { document.getElementById('keyword').value=s; searchMusic(); } }
 function searchSinger(s) { document.getElementById('keyword').value=s; searchMusic(); }
 
-// ==================== 收藏 ====================
 function toggleFavorite(idx) {
     const song = currentSongs[idx];
     if (!song) return;
@@ -615,15 +623,13 @@ function showFavorites() {
     switchTab('favorites');
 }
 
-// ==================== 播放（点击卡片立即播放 - 修复版） ====================
+// ==================== 播放 ====================
 function playSong(idx, seekTime) {
     if (idx < 0 || idx >= currentSongs.length) return;
     const song = currentSongs[idx];
     if (!song) return;
     
-    // 清除之前的超时
     if (playTimeout) clearTimeout(playTimeout);
-    
     currentPlayIndex = idx;
     
     const player = document.getElementById('player');
@@ -635,15 +641,11 @@ function playSong(idx, seekTime) {
     const el = document.getElementById(`card-${idx}`);
     if (el) el.classList.add('playing');
     
-    // 使用流式接口播放
     const playUrl = `/api/stream/${encodeURIComponent(song.mid || '')}`;
     audio.src = playUrl;
     audio.load();
     
-    // 播放状态控制
     let played = false;
-    
-    // 当可以播放时自动播放
     audio.oncanplay = function() {
         if (!played) {
             played = true;
@@ -654,15 +656,13 @@ function playSong(idx, seekTime) {
                 setupAudioEvents();
                 savePlayerState();
                 showToast(`▶️ 正在播放: ${song.song}`);
-            }).catch((e) => {
-                // 如果自动播放失败，用户手动点击播放
+            }).catch(() => {
                 showToast('点击播放按钮开始播放');
                 player.style.display = 'block';
             });
         }
     };
     
-    // 超时处理 - 5秒后如果还没播放，尝试强制播放
     playTimeout = setTimeout(() => {
         if (!played && !audio.paused) {
             played = true;
@@ -673,14 +673,12 @@ function playSong(idx, seekTime) {
             savePlayerState();
             showToast(`▶️ 正在播放: ${song.song}`);
         } else if (!played) {
-            // 尝试再次播放
             audio.play().catch(() => {});
             player.style.display = 'block';
         }
         playTimeout = null;
     }, 5000);
     
-    // 错误处理
     audio.onerror = function() {
         if (playTimeout) clearTimeout(playTimeout);
         playTimeout = null;
@@ -725,7 +723,6 @@ function seekTo(e) {
     }
 }
 
-// ===== 播放模式 =====
 function toggleMode() {
     const modes = ['all', 'single', 'loop', 'random'];
     const labels = ['🔁 列表', '🔂 单曲', '🔁 循环', '🎲 随机'];
@@ -883,8 +880,6 @@ def stream_music(mid):
     song_url = get_song_url(mid)
     if not song_url:
         return jsonify({'code': 404, 'message': '无法获取播放链接'}), 404
-    if song_url.startswith('https://example.com/'):
-        return jsonify({'code': 404, 'message': '预置歌曲请先下载到服务器'}), 404
     response = proxy_stream(song_url)
     if response:
         return response
