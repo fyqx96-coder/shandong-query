@@ -402,6 +402,27 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             background: #1c1c28;
             color: #3a86ff;
             width: 38px;
+            position: relative;
+        }
+        .preset-btn .click-badge {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            background: rgba(255,215,0,0.8);
+            color: #000;
+            border-radius: 50%;
+            width: 14px;
+            height: 14px;
+            font-size: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .preset-btn .click-badge.show {
+            opacity: 1;
         }
         .action-btn:active, .preset-btn:active {
             transform: translateY(2px);
@@ -499,6 +520,23 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         .modal-item.multi-selected { background:#2a4a3a; border-left:4px solid #ffaa33; }
         .badge-icon { font-size:0.45rem; background:#ffaa33; color:#000; border-radius:20px; padding:1px 5px; margin-left:4px; }
         .close-modal { text-align:center; margin-top:12px; padding:6px; cursor:pointer; font-size:0.6rem; border-top:1px solid #334455; color:#ff5555; }
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.85);
+            color: #fff;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            z-index: 999;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            border: 1px solid rgba(255,215,0,0.2);
+        }
+        .toast.show { opacity: 1; }
         @media (max-width:900px) {
             .triple-panel { flex-direction: column; }
             .triple-panel > * { flex: none; width: 100%; }
@@ -526,6 +564,9 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 </head>
 <body>
 
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
 <div id="radioApp" style="opacity:1;">
     <div class="radio-chassis">
         <div class="glass-header" onclick="location.href='/'">
@@ -552,6 +593,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 <div id="eqModal" class="modal">
     <div class="modal-content">
         <h3>🎛️ 智能环绕音效库 · 点击多选叠加</h3>
+        <div style="font-size:0.6rem;color:#888;margin:4px 0 8px;">最多叠加 3 个音效</div>
         <div id="presetList"></div>
         <div class="close-modal" id="closeModal">✖ 关闭</div>
     </div>
@@ -577,6 +619,20 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 
         let panner3D = null;
         let surroundAnimationId = null;
+        
+        // ========== Toast ==========
+        function showToast(msg) {
+            const el = document.getElementById('toast');
+            el.textContent = msg;
+            el.classList.add('show');
+            clearTimeout(el._timer);
+            el._timer = setTimeout(() => el.classList.remove('show'), 2000);
+        }
+        
+        // ========== 预设按钮点击计数器 ==========
+        let presetClickCounts = {};
+        let presetClickTimers = {};
+
         function getLowFreqEnergy(){
             if(!analyser) return 0.3;
             const freqData = new Uint8Array(analyser.frequencyBinCount);
@@ -682,13 +738,18 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         function applyMergedSurround(){ if(!eqFilters.length) return; let merged=mergeEffects(stackedEffects); for(let i=0;i<10;i++) eqFilters[i].gain.value=merged.eq[i]; if(stereoPanner) stereoPanner.pan.value=merged.stereo; if(drcCompressor){ if(merged.drc) { drcCompressor.threshold.value=-16.8; drcCompressor.ratio.value=3.15; } else { drcCompressor.threshold.value=-100; drcCompressor.ratio.value=1; } } if(reverbWet && reverbDry){ reverbWet.gain.value=merged.reverb*0.5; reverbDry.gain.value=1-merged.reverb*0.3; } if(masterGain){ applyVolume(); } renderBandsUIWithEq(merged.eq); updateEqLabelSurround(); refreshWordRotatorContent(); }
         function renderBandsUIWithEq(eqVals){ let container=document.getElementById("bandsGrid"); if(!container) return; container.innerHTML=""; for(let i=0;i<FREQ_BANDS.length;i++){ let val=eqVals[i]; let bandDiv=document.createElement("div"); bandDiv.className="band-item"; bandDiv.innerHTML=`<div class="band-freq">${FREQ_BANDS[i]}</div><div class="band-gain">${val>0?'+'+val:val}</div>`; container.appendChild(bandDiv); } }
         function updateEqLabelSurround(){ let lab=document.getElementById("eqLabel"); if(lab) lab.innerText=isSurroundEnabled?`环绕+${stackedEffects.length}`:currentEffect; }
-        function renderStackedChips(){ let container = document.getElementById('stackedEffectsContainer'); if(!container) return; if(!isSurroundEnabled || stackedEffects.length===0){ container.innerHTML=`<div class="stacked-title">🌀 智能环绕未激活</div>`; return; } let html=`<div class="stacked-title">🔊 已叠加</div><div class="stacked-chips">`; stackedEffects.forEach(eff=>{ html+=`<div class="stack-chip" data-effect="${eff}">${eff} <span class="remove-stack" data-effect="${eff}">✖</span></div>`; }); html+=`</div>`; container.innerHTML=html; document.querySelectorAll(".remove-stack").forEach(el=>{ el.addEventListener("click",(e)=>{ e.stopPropagation(); let name=el.getAttribute("data-effect"); if(name){ let idx=stackedEffects.indexOf(name); if(idx!==-1) stackedEffects.splice(idx,1); if(stackedEffects.length===0) applyMergedSurround(); else applyMergedSurround(); renderStackedChips(); if(document.getElementById("eqModal").classList.contains("active")) renderEQModalMulti(); refreshWordRotatorContent(); } }); }); }
+        function renderStackedChips(){ let container = document.getElementById('stackedEffectsContainer'); if(!container) return; if(!isSurroundEnabled || stackedEffects.length===0){ container.innerHTML=`<div class="stacked-title">🌀 智能环绕未激活</div>`; return; } let html=`<div class="stacked-title">🔊 已叠加 (${stackedEffects.length}/3)</div><div class="stacked-chips">`; stackedEffects.forEach(eff=>{ html+=`<div class="stack-chip" data-effect="${eff}">${eff} <span class="remove-stack" data-effect="${eff}">✖</span></div>`; }); html+=`</div>`; container.innerHTML=html; document.querySelectorAll(".remove-stack").forEach(el=>{ el.addEventListener("click",(e)=>{ e.stopPropagation(); let name=el.getAttribute("data-effect"); if(name){ let idx=stackedEffects.indexOf(name); if(idx!==-1) stackedEffects.splice(idx,1); if(stackedEffects.length===0) applyMergedSurround(); else applyMergedSurround(); renderStackedChips(); if(document.getElementById("eqModal").classList.contains("active")) renderEQModalMulti(); refreshWordRotatorContent(); } }); }); }
         
         function toggleSurroundMode(){
             isSurroundEnabled = !isSurroundEnabled;
             if(isSurroundEnabled){
-                if(!stackedEffects.includes(currentEffect) && currentEffect!=="Original") stackedEffects.unshift(currentEffect);
-                else if(stackedEffects.length===0 && currentEffect!=="Original") stackedEffects.push(currentEffect);
+                // 默认添加三维海浪环绕
+                if(!stackedEffects.includes("🌊 三维海浪环绕")) {
+                    stackedEffects.push("🌊 三维海浪环绕");
+                }
+                if(!stackedEffects.includes(currentEffect) && currentEffect!=="Original") {
+                    stackedEffects.unshift(currentEffect);
+                }
                 applyMergedSurround();
                 start3DSurround();
             } else {
@@ -706,26 +767,39 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             updateEqLabelSurround();
             if(document.getElementById("eqModal").classList.contains("active")) renderEQModalMulti();
             refreshWordRotatorContent();
+            showToast(isSurroundEnabled ? '🌊 环绕已开启 (三维海浪)' : '环绕已关闭');
         }
 
         function applyEffectSingle(){ if(!eqFilters.length) return; let preset=EFFECT_PRESETS[currentEffect]; for(let i=0;i<10;i++) eqFilters[i].gain.value=preset.eq[i]; if(stereoPanner) stereoPanner.pan.value=preset.stereo||0; if(drcCompressor){ if(preset.drc) { drcCompressor.threshold.value=-16.8; drcCompressor.ratio.value=3.15; } else { drcCompressor.threshold.value=-100; drcCompressor.ratio.value=1; } } if(reverbWet && reverbDry){ reverbWet.gain.value=(preset.reverb||0)*0.5; reverbDry.gain.value=1-(preset.reverb||0)*0.3; } if(masterGain){ applyVolume(); } renderBandsUIWithEq(preset.eq); updateEqLabelSurround(); refreshWordRotatorContent(); }
         
         function setEffect(effectName){ 
             if(isSurroundEnabled){ 
-                if(stackedEffects.includes(effectName)){ let idx=stackedEffects.indexOf(effectName); stackedEffects.splice(idx,1); if(stackedEffects.length===0) applyMergedSurround(); else applyMergedSurround(); } 
-                else { stackedEffects.push(effectName); applyMergedSurround(); } 
+                // 最多叠加3个
+                if(stackedEffects.includes(effectName)){ 
+                    let idx=stackedEffects.indexOf(effectName); 
+                    stackedEffects.splice(idx,1); 
+                    if(stackedEffects.length===0) applyMergedSurround(); 
+                    else applyMergedSurround(); 
+                } else { 
+                    if(stackedEffects.length >= 3) {
+                        showToast('⚠️ 最多叠加 3 个音效');
+                        return;
+                    }
+                    stackedEffects.push(effectName); 
+                    applyMergedSurround(); 
+                } 
                 renderStackedChips(); 
                 if(document.getElementById("eqModal").classList.contains("active")) renderEQModalMulti(); 
             } else { 
                 if(currentEffect===effectName) return; 
                 currentEffect=effectName; 
                 applyEffectSingle(); 
-                showMsg(`音效: ${effectName}`); 
+                showToast(`音效: ${effectName}`); 
             } 
             refreshWordRotatorContent(); 
         }
         
-        function renderEQModalMulti(){ let listDiv=document.getElementById("presetList"); if(!listDiv) return; listDiv.innerHTML=""; EFFECT_NAMES.forEach(name=>{ let item=document.createElement("div"); let isSelected=isSurroundEnabled?stackedEffects.includes(name):(currentEffect===name); item.className=`modal-item ${isSelected?(isSurroundEnabled?"multi-selected":"selected"):""}`; let preset=EFFECT_PRESETS[name]; let badge=""; if(preset.drc) badge='<span class="badge-icon">DRC</span>'; else if(preset.reverb>0) badge='<span class="badge-icon">RVB</span>'; else if(preset.stereo>0) badge='<span class="badge-icon">STEREO</span>'; item.innerHTML=`<span class="sound-icon">🎵</span><span>${name}</span>${badge}`; item.onclick=()=>{ setEffect(name); renderEQModalMulti(); }; listDiv.appendChild(item); }); }
+        function renderEQModalMulti(){ let listDiv=document.getElementById("presetList"); if(!listDiv) return; listDiv.innerHTML=""; EFFECT_NAMES.forEach(name=>{ let item=document.createElement("div"); let isSelected=isSurroundEnabled?stackedEffects.includes(name):(currentEffect===name); item.className=`modal-item ${isSelected?(isSurroundEnabled?"multi-selected":"selected"):""}`; let preset=EFFECT_PRESETS[name]; let badge=""; if(preset.drc) badge='<span class="badge-icon">DRC</span>'; else if(preset.reverb>0) badge='<span class="badge-icon">RVB</span>'; else if(preset.stereo>0) badge='<span class="badge-icon">STEREO</span>'; let disabled = isSurroundEnabled && stackedEffects.length >= 3 && !isSelected ? ' style="opacity:0.4;"' : ''; item.innerHTML=`<span class="sound-icon">🎵</span><span>${name}</span>${badge}${isSurroundEnabled && stackedEffects.length >= 3 && !isSelected ? ' <span style="font-size:0.4rem;color:#ff6633;">(已满)</span>' : ''}`; item.setAttribute('data-name', name); item.onclick=()=>{ setEffect(name); renderEQModalMulti(); }; listDiv.appendChild(item); }); }
         
         function showMsg(m){ let st=document.getElementById("radioStatus"); if(st){ st.innerHTML=`📢 ${m}`; setTimeout(()=>{ if(stationsList[currentIdx] && !radioPlayer.paused) st.innerHTML=`🎛️ ${isSurroundEnabled?'环绕':currentEffect} | ${stationsList[currentIdx]?.name?.substring(0,18)}`; else if(stationsList[currentIdx]) st.innerHTML=stationsList[currentIdx]?.name?.substring(0,20); else st.innerHTML="AETHERWAVE"; },2000); } }
         function updateFreqDisplay(raw){ let base=raw/10; let final=base+fineOffset; final=Math.min(108,Math.max(87,final)); let spanTriple=document.getElementById("frequencyValue"); if(spanTriple) spanTriple.innerText=final.toFixed(1); }
@@ -733,12 +807,138 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         function nextStation(){ if(!stationsList.length) return; let newIdx=currentIdx+1; if(newIdx>=stationsList.length) newIdx=0; selectStation(newIdx); }
         function selectStation(idx){ if(!stationsList[idx]) return; currentIdx=idx; let st=stationsList[idx]; radioPlayer.pause(); radioPlayer.src=''; setTimeout(()=>{ radioPlayer.src=st.url_resolved; radioPlayer.load(); radioPlayer.play().catch(err=>console.warn("播放失败",err)); },50); let pseudo=875+(idx%25)*7.2; updateFreqDisplay(pseudo); renderStationList(); let statusSpan=document.getElementById("radioStatus"); if(statusSpan) statusSpan.innerHTML=`🎛️ ${isSurroundEnabled?'环绕':currentEffect} | ${st.name.substring(0,20)}`; localStorage.setItem("aetherwave_last_station", st.url_resolved); startQuoteRotation(st.name); refreshWordRotatorContent(); }
         function renderStationList(){ let cont=document.getElementById("stationListArea"); if(!cont) return; cont.innerHTML=''; stationsList.forEach((st,idx)=>{ let div=document.createElement("div"); div.className=`channel-item ${currentIdx===idx?'active':''}`; div.innerHTML=`<span>${(87+idx*0.45).toFixed(1)} MHz • ${st.name.substring(0,28)}</span><span class="play-icon">▶</span>`; div.onclick=()=>selectStation(idx); cont.appendChild(div); }); }
-        function bindPresetButton(btn, idx) { btn.addEventListener('click', (e) => { e.stopPropagation(); recallPreset(idx); }); btn.addEventListener('dblclick', (e) => { e.stopPropagation(); saveCurrentPreset(idx); }); }
-        function recallPreset(i){ let url=presetUrls[i]; if(!url) { showMsg(`P${i+1} 无预设`); return; } radioPlayer.pause(); radioPlayer.src = url; radioPlayer.load(); radioPlayer.play().catch(err => console.warn("播放预设失败", err)); let matchedIdx = stationsList.findIndex(s => s.url_resolved === url); if(matchedIdx !== -1) { currentIdx = matchedIdx; renderStationList(); let statusSpan = document.getElementById("radioStatus"); if(statusSpan) statusSpan.innerHTML=`🎛️ ${isSurroundEnabled?'环绕':currentEffect} | ${stationsList[matchedIdx].name.substring(0,20)}`; startQuoteRotation(stationsList[matchedIdx].name); let pseudo = 875 + (matchedIdx % 25) * 7.2; updateFreqDisplay(pseudo); localStorage.setItem("aetherwave_last_station", url); } else { currentIdx = -1; renderStationList(); let statusSpan = document.getElementById("radioStatus"); if(statusSpan) statusSpan.innerHTML=`🎛️ ${isSurroundEnabled?'环绕':currentEffect} | 外部电台`; startQuoteRotation(null); } refreshWordRotatorContent(); }
-        function saveCurrentPreset(i){ let currentUrl = radioPlayer.src; if(!currentUrl || currentUrl === "") { if(currentIdx !== -1 && stationsList[currentIdx]) { currentUrl = stationsList[currentIdx].url_resolved; } else { showMsg("请先选择或播放一个电台"); return; } } presetUrls[i] = currentUrl; localStorage.setItem("aetherwave_presets", JSON.stringify(presetUrls)); updatePresetUI(); showMsg(`已存入 P${i+1}`); }
-        function updatePresetUI(){ document.querySelectorAll(".preset-btn").forEach((btn,i)=>{ let url=presetUrls[i]; let label=btn.querySelector(".preset-label"); if(url && url !== "") { let station = stationsList.find(s => s.url_resolved === url); if(station) { label.innerText = station.name.slice(0,4); btn.classList.add("saved"); } else { label.innerText = "★"; btn.classList.add("saved"); } } else { label.innerText = ""; btn.classList.remove("saved"); } }); }
+        
+        // ========== 预设按钮 - 三击清除，双击保存 ==========
+        function bindPresetButton(btn, idx) {
+            // 单击：播放
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // 检查是否双击/三击
+                if (!presetClickCounts[idx]) presetClickCounts[idx] = 0;
+                presetClickCounts[idx]++;
+                
+                // 显示点击次数徽章
+                let badge = btn.querySelector('.click-badge');
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'click-badge';
+                    btn.appendChild(badge);
+                }
+                badge.textContent = presetClickCounts[idx];
+                badge.classList.add('show');
+                
+                clearTimeout(presetClickTimers[idx]);
+                presetClickTimers[idx] = setTimeout(() => {
+                    const count = presetClickCounts[idx];
+                    if (count === 1) {
+                        // 单击：播放
+                        recallPreset(idx);
+                        badge.classList.remove('show');
+                    } else if (count === 2) {
+                        // 双击：保存
+                        saveCurrentPreset(idx);
+                        badge.classList.remove('show');
+                    } else if (count >= 3) {
+                        // 三击：清除
+                        clearPreset(idx);
+                        badge.classList.remove('show');
+                    }
+                    presetClickCounts[idx] = 0;
+                }, 500);
+            });
+            
+            btn.addEventListener('dblclick', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // 双击由 click 处理，这里阻止默认
+            });
+        }
+        
+        function recallPreset(i){ 
+            let url=presetUrls[i]; 
+            if(!url) { 
+                showToast(`P${i+1} 无预设，双击保存`);
+                return; 
+            } 
+            radioPlayer.pause(); 
+            radioPlayer.src = url; 
+            radioPlayer.load(); 
+            radioPlayer.play().catch(err => console.warn("播放预设失败", err)); 
+            let matchedIdx = stationsList.findIndex(s => s.url_resolved === url); 
+            if(matchedIdx !== -1) { 
+                currentIdx = matchedIdx; 
+                renderStationList(); 
+                let statusSpan = document.getElementById("radioStatus"); 
+                if(statusSpan) statusSpan.innerHTML=`🎛️ ${isSurroundEnabled?'环绕':currentEffect} | ${stationsList[matchedIdx].name.substring(0,20)}`; 
+                startQuoteRotation(stationsList[matchedIdx].name); 
+                let pseudo = 875 + (matchedIdx % 25) * 7.2; 
+                updateFreqDisplay(pseudo); 
+                localStorage.setItem("aetherwave_last_station", url); 
+            } else { 
+                currentIdx = -1; 
+                renderStationList(); 
+                let statusSpan = document.getElementById("radioStatus"); 
+                if(statusSpan) statusSpan.innerHTML=`🎛️ ${isSurroundEnabled?'环绕':currentEffect} | 外部电台`; 
+                startQuoteRotation(null); 
+            } 
+            refreshWordRotatorContent(); 
+            showToast(`▶️ P${i+1}`);
+        }
+        
+        function saveCurrentPreset(i){ 
+            let currentUrl = radioPlayer.src; 
+            if(!currentUrl || currentUrl === "") { 
+                if(currentIdx !== -1 && stationsList[currentIdx]) { 
+                    currentUrl = stationsList[currentIdx].url_resolved; 
+                } else { 
+                    showToast("请先选择或播放一个电台"); 
+                    return; 
+                } 
+            } 
+            // 检查是否已存在相同URL
+            if(presetUrls[i] === currentUrl) {
+                showToast(`P${i+1} 已保存，无需重复`);
+                return;
+            }
+            presetUrls[i] = currentUrl; 
+            localStorage.setItem("aetherwave_presets", JSON.stringify(presetUrls)); 
+            updatePresetUI(); 
+            showToast(`✅ 已存入 P${i+1}`); 
+        }
+        
+        function clearPreset(i){
+            if(!presetUrls[i]) {
+                showToast(`P${i+1} 已是空`);
+                return;
+            }
+            presetUrls[i] = "";
+            localStorage.setItem("aetherwave_presets", JSON.stringify(presetUrls));
+            updatePresetUI();
+            showToast(`🗑️ P${i+1} 已清除`);
+        }
+        
+        function updatePresetUI(){ 
+            document.querySelectorAll(".preset-btn").forEach((btn,i)=>{ 
+                let url=presetUrls[i]; 
+                let label=btn.querySelector(".preset-label"); 
+                if(url && url !== "") { 
+                    let station = stationsList.find(s => s.url_resolved === url); 
+                    if(station) { 
+                        label.innerText = station.name.slice(0,4); 
+                        btn.classList.add("saved"); 
+                    } else { 
+                        label.innerText = "★"; 
+                        btn.classList.add("saved"); 
+                    } 
+                } else { 
+                    label.innerText = ""; 
+                    btn.classList.remove("saved"); 
+                } 
+            }); 
+        }
+        
         function applyVolume(){ if(!masterGain) return; if(isMuted){ masterGain.gain.value = 0; } else { let norm = (volumeRotation + 135) / 180; let vol = Math.min(1.2, Math.max(0, norm)) * 0.85; if(isSurroundEnabled){ let merged = mergeEffects(stackedEffects); vol = vol * Math.pow(10, merged.gain / 20); } else { let preset = EFFECT_PRESETS[currentEffect]; vol = vol * Math.pow(10, (preset.gain || 0) / 20); } previousVolume = vol; masterGain.gain.value = vol; } }
-        function toggleMute(){ isMuted = !isMuted; if(isMuted){ previousVolume = masterGain.gain.value; masterGain.gain.value = 0; } else { masterGain.gain.value = previousVolume; } updateMuteUI(); showMsg(isMuted ? "已静音" : "已取消静音"); refreshWordRotatorContent(); }
+        function toggleMute(){ isMuted = !isMuted; if(isMuted){ previousVolume = masterGain.gain.value; masterGain.gain.value = 0; } else { masterGain.gain.value = previousVolume; } updateMuteUI(); showToast(isMuted ? "🔇 已静音" : "🔊 已取消静音"); refreshWordRotatorContent(); }
         function updateMuteUI(){ const headerBtn = document.getElementById('globalMuteBtn'); if(headerBtn) headerBtn.innerHTML = isMuted ? "🎤 开启" : "🔇 静音"; }
         function setVolumeFromKnob(deg){ volumeRotation = deg; if(!masterGain) return; if(!isMuted){ let norm = (volumeRotation + 135) / 180; let vol = Math.min(1.2, Math.max(0, norm)) * 0.85; if(isSurroundEnabled){ let merged = mergeEffects(stackedEffects); vol = vol * Math.pow(10, merged.gain / 20); } else { let preset = EFFECT_PRESETS[currentEffect]; vol = vol * Math.pow(10, (preset.gain || 0) / 20); } masterGain.gain.value = vol; previousVolume = vol; } else { let norm = (volumeRotation + 135) / 180; let vol = Math.min(1.2, Math.max(0, norm)) * 0.85; previousVolume = vol; } }
         function startQuoteRotation(stationName=null){ let qDiv=document.getElementById("rollingQuote"); if(qDiv){ let msg=stationName?`🎧 收听 ${stationName.substring(0,26)} 🎧`:"✨ AETHERWAVE · 三维海浪环绕 ✨"; qDiv.innerText=msg; } }
@@ -785,7 +985,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             let leftArrow=document.getElementById('freqStepLeft'); if(leftArrow) leftArrow.onclick=()=>{ if(stationsList.length) prevStation(); };
             let rightArrow=document.getElementById('freqStepRight'); if(rightArrow) rightArrow.onclick=()=>{ if(stationsList.length) nextStation(); };
             let row1=document.getElementById('presetRowTriple1'); let row2=document.getElementById('presetRowTriple2');
-            if(row1 && row2){ row1.innerHTML=''; row2.innerHTML=''; for(let i=0;i<6;i++){ let btn=document.createElement('button'); btn.className='preset-btn'; btn.innerHTML=`P${i+1}<span class="preset-label"></span>`; bindPresetButton(btn, i); row1.appendChild(btn); } for(let i=6;i<9;i++){ let btn=document.createElement('button'); btn.className='preset-btn'; btn.innerHTML=`P${i+1}<span class="preset-label"></span>`; bindPresetButton(btn, i); row2.appendChild(btn); } updatePresetUI(); }
+            if(row1 && row2){ row1.innerHTML=''; row2.innerHTML=''; for(let i=0;i<6;i++){ let btn=document.createElement('button'); btn.className='preset-btn'; btn.innerHTML=`P${i+1}<span class="preset-label"></span><span class="click-badge"></span>`; bindPresetButton(btn, i); row1.appendChild(btn); } for(let i=6;i<9;i++){ let btn=document.createElement('button'); btn.className='preset-btn'; btn.innerHTML=`P${i+1}<span class="preset-label"></span><span class="click-badge"></span>`; bindPresetButton(btn, i); row2.appendChild(btn); } updatePresetUI(); }
             let closeModalBtn = document.getElementById('closeModal'); if(closeModalBtn) closeModalBtn.onclick = () => document.getElementById('eqModal').classList.remove('active');
             let eqModal = document.getElementById('eqModal'); if(eqModal) eqModal.onclick = (e) => { if(e.target === eqModal) eqModal.classList.remove('active'); };
             if(isSurroundEnabled) applyMergedSurround(); else applyEffectSingle();
@@ -921,5 +1121,7 @@ if __name__ == '__main__':
     print("="*60)
     print(f"  🌐 访问地址: http://localhost:{port}")
     print("  📻 全球电台 · 三维海浪环绕")
+    print("  🎛️ P键: 单击播放 | 双击保存 | 三击清除")
+    print("  🌊 环绕默认开启三维海浪, 最多叠加3个音效")
     print("="*60)
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
