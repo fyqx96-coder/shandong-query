@@ -576,7 +576,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 <span class="clock-panel" id="liveClock">--:--:--</span>
             </div>
             <div class="header-right">
-                <select id="countrySelect" class="country-tuner">
+                <select id="countrySelect" class="country-tuner" onclick="event.stopPropagation();">
                     <option value="China">🇨🇳 中国</option>
                     <option value="United States">🇺🇸 美国</option>
                     <option value="Japan">🇯🇵 日本</option>
@@ -584,7 +584,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                     <option value="Germany">🇩🇪 德国</option>
                     <option value="France">🇫🇷 法国</option>
                 </select>
-                <button id="globalMuteBtn" class="mute-header-btn">🔇 静音</button>
+                <button id="globalMuteBtn" class="mute-header-btn" onclick="event.stopPropagation();">🔇 静音</button>
             </div>
         </div>
         <div id="layoutRoot"></div>
@@ -626,7 +626,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             el.textContent = msg;
             el.classList.add('show');
             clearTimeout(el._timer);
-            el._timer = setTimeout(() => el.classList.remove('show'), 2000);
+            el._timer = setTimeout(() => el.classList.remove('show'), 1500);
         }
         
         // ========== 预设按钮点击计数器 ==========
@@ -729,16 +729,109 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             remove3DPanner();
         }
 
-        const EFFECT_PRESETS = { "Original":{eq:[0,0,0,0,0,0,0,0,0,0],drc:false,stereo:0,reverb:0,gain:0},"headset":{eq:[2,1,0,2,3,2,1,0,0,0],drc:false,stereo:0,reverb:0,gain:0},"headset2":{eq:[12,10,8,3,0,-2,-3,-2,0,0],drc:false,stereo:0,reverb:0,gain:0},"headset3":{eq:[8,6,4,-2,-4,-6,-4,-2,0,2],drc:false,stereo:0,reverb:0,gain:0},"speaker":{eq:[-12,-12,-6,-3,0,2,3,4,3,2],drc:false,stereo:0,reverb:0,gain:0},"voice_clean":{eq:[-6,-4,-2,-1,2,5,3,1,0,-1],drc:false,stereo:0,reverb:0,gain:5},"bass_enhance":{eq:[10,8,6,2,0,-1,-2,-1,0,0],drc:false,stereo:0,reverb:0,gain:0},"stereo_enhance":{eq:[0,0,0,0,0,0,0,0,0,0],drc:false,stereo:0.8,reverb:0,gain:0},"360_all":{eq:[0,0,0,0,0,0,0,0,0,0],drc:false,stereo:0.5,reverb:0.25,gain:0},"hifi_live":{eq:[0,0,1,2,2,3,3,2,1,0],drc:false,stereo:0.2,reverb:0.3,gain:0},"vibrant_electronic":{eq:[4,3,2,1,0,0,2,4,5,4],drc:false,stereo:0.3,reverb:0.28,gain:10},"vinyl":{eq:[-8,-6,-4,-2,0,2,1,0,-2,-4],drc:false,stereo:0,reverb:0.15,gain:2},"rock":{eq:[8,6,4,2,0,1,2,4,6,8],drc:false,stereo:0,reverb:0,gain:0},"intelligent":{eq:[3,2,1,0,0,1,2,3,4,3],drc:true,stereo:0.15,reverb:0.1,gain:0},
-            "🌊 三维海浪环绕":{eq:[1,1,1,0,0,1,2,3,3,2],drc:false,stereo:0.2,reverb:0.15,gain:0} };
+        const EFFECT_PRESETS = { 
+            "Original":{eq:[0,0,0,0,0,0,0,0,0,0],drc:false,stereo:0,reverb:0,gain:0},
+            "headset":{eq:[2,1,0,2,3,2,1,0,0,0],drc:false,stereo:0,reverb:0,gain:0},
+            "headset2":{eq:[12,10,8,3,0,-2,-3,-2,0,0],drc:false,stereo:0,reverb:0,gain:0},
+            "headset3":{eq:[8,6,4,-2,-4,-6,-4,-2,0,2],drc:false,stereo:0,reverb:0,gain:0},
+            "speaker":{eq:[-12,-12,-6,-3,0,2,3,4,3,2],drc:false,stereo:0,reverb:0,gain:0},
+            "voice_clean":{eq:[-6,-4,-2,-1,2,5,3,1,0,-1],drc:false,stereo:0,reverb:0,gain:5},
+            "bass_enhance":{eq:[10,8,6,2,0,-1,-2,-1,0,0],drc:false,stereo:0,reverb:0,gain:0},
+            "stereo_enhance":{eq:[0,0,0,0,0,0,0,0,0,0],drc:false,stereo:0.8,reverb:0,gain:0},
+            "360_all":{eq:[0,0,0,0,0,0,0,0,0,0],drc:false,stereo:0.5,reverb:0.25,gain:0},
+            "hifi_live":{eq:[0,0,1,2,2,3,3,2,1,0],drc:false,stereo:0.2,reverb:0.3,gain:0},
+            "vibrant_electronic":{eq:[4,3,2,1,0,0,2,4,5,4],drc:false,stereo:0.3,reverb:0.28,gain:10},
+            "vinyl":{eq:[-8,-6,-4,-2,0,2,1,0,-2,-4],drc:false,stereo:0,reverb:0.15,gain:2},
+            "rock":{eq:[8,6,4,2,0,1,2,4,6,8],drc:false,stereo:0,reverb:0,gain:0},
+            "intelligent":{eq:[3,2,1,0,0,1,2,3,4,3],drc:true,stereo:0.15,reverb:0.1,gain:0},
+            "🌊 三维海浪环绕":{eq:[1,1,1,0,0,1,2,3,3,2],drc:false,stereo:0.2,reverb:0.15,gain:0} 
+        };
         const EFFECT_NAMES = Object.keys(EFFECT_PRESETS);
         const FREQ_BANDS = ["31Hz","62Hz","125Hz","250Hz","500Hz","1kHz","2kHz","4kHz","8kHz","14kHz"];
 
-        function mergeEffects(effectsList) { if(!effectsList.length) return EFFECT_PRESETS["Original"]; let sumEq=new Array(10).fill(0), drcFlag=false, stereoSum=0, reverbMax=0, gainSum=0; for(let name of effectsList){ let p=EFFECT_PRESETS[name]; if(!p) continue; for(let i=0;i<10;i++) sumEq[i]+=p.eq[i]; if(p.drc) drcFlag=true; stereoSum+=p.stereo; if(p.reverb>reverbMax) reverbMax=p.reverb; gainSum+=p.gain; } let count=effectsList.length; for(let i=0;i<10;i++) sumEq[i]=Math.min(20,Math.max(-20,sumEq[i])); return { eq:sumEq, drc:drcFlag, stereo:stereoSum/count, reverb:reverbMax, gain:gainSum }; }
-        function applyMergedSurround(){ if(!eqFilters.length) return; let merged=mergeEffects(stackedEffects); for(let i=0;i<10;i++) eqFilters[i].gain.value=merged.eq[i]; if(stereoPanner) stereoPanner.pan.value=merged.stereo; if(drcCompressor){ if(merged.drc) { drcCompressor.threshold.value=-16.8; drcCompressor.ratio.value=3.15; } else { drcCompressor.threshold.value=-100; drcCompressor.ratio.value=1; } } if(reverbWet && reverbDry){ reverbWet.gain.value=merged.reverb*0.5; reverbDry.gain.value=1-merged.reverb*0.3; } if(masterGain){ applyVolume(); } renderBandsUIWithEq(merged.eq); updateEqLabelSurround(); refreshWordRotatorContent(); }
-        function renderBandsUIWithEq(eqVals){ let container=document.getElementById("bandsGrid"); if(!container) return; container.innerHTML=""; for(let i=0;i<FREQ_BANDS.length;i++){ let val=eqVals[i]; let bandDiv=document.createElement("div"); bandDiv.className="band-item"; bandDiv.innerHTML=`<div class="band-freq">${FREQ_BANDS[i]}</div><div class="band-gain">${val>0?'+'+val:val}</div>`; container.appendChild(bandDiv); } }
-        function updateEqLabelSurround(){ let lab=document.getElementById("eqLabel"); if(lab) lab.innerText=isSurroundEnabled?`环绕+${stackedEffects.length}`:currentEffect; }
-        function renderStackedChips(){ let container = document.getElementById('stackedEffectsContainer'); if(!container) return; if(!isSurroundEnabled || stackedEffects.length===0){ container.innerHTML=`<div class="stacked-title">🌀 智能环绕未激活</div>`; return; } let html=`<div class="stacked-title">🔊 已叠加 (${stackedEffects.length}/3)</div><div class="stacked-chips">`; stackedEffects.forEach(eff=>{ html+=`<div class="stack-chip" data-effect="${eff}">${eff} <span class="remove-stack" data-effect="${eff}">✖</span></div>`; }); html+=`</div>`; container.innerHTML=html; document.querySelectorAll(".remove-stack").forEach(el=>{ el.addEventListener("click",(e)=>{ e.stopPropagation(); let name=el.getAttribute("data-effect"); if(name){ let idx=stackedEffects.indexOf(name); if(idx!==-1) stackedEffects.splice(idx,1); if(stackedEffects.length===0) applyMergedSurround(); else applyMergedSurround(); renderStackedChips(); if(document.getElementById("eqModal").classList.contains("active")) renderEQModalMulti(); refreshWordRotatorContent(); } }); }); }
+        function mergeEffects(effectsList) { 
+            if(!effectsList.length) return EFFECT_PRESETS["Original"]; 
+            let sumEq=new Array(10).fill(0), drcFlag=false, stereoSum=0, reverbMax=0, gainSum=0; 
+            for(let name of effectsList){ 
+                let p=EFFECT_PRESETS[name]; 
+                if(!p) continue; 
+                for(let i=0;i<10;i++) sumEq[i]+=p.eq[i]; 
+                if(p.drc) drcFlag=true; 
+                stereoSum+=p.stereo; 
+                if(p.reverb>reverbMax) reverbMax=p.reverb; 
+                gainSum+=p.gain; 
+            } 
+            let count=effectsList.length; 
+            for(let i=0;i<10;i++) sumEq[i]=Math.min(20,Math.max(-20,sumEq[i])); 
+            return { eq:sumEq, drc:drcFlag, stereo:stereoSum/count, reverb:reverbMax, gain:gainSum }; 
+        }
+        
+        function applyMergedSurround(){ 
+            if(!eqFilters.length) return; 
+            let merged=mergeEffects(stackedEffects); 
+            for(let i=0;i<10;i++) eqFilters[i].gain.value=merged.eq[i]; 
+            if(stereoPanner) stereoPanner.pan.value=merged.stereo; 
+            if(drcCompressor){ 
+                if(merged.drc) { drcCompressor.threshold.value=-16.8; drcCompressor.ratio.value=3.15; } 
+                else { drcCompressor.threshold.value=-100; drcCompressor.ratio.value=1; } 
+            } 
+            if(reverbWet && reverbDry){ 
+                reverbWet.gain.value=merged.reverb*0.5; 
+                reverbDry.gain.value=1-merged.reverb*0.3; 
+            } 
+            if(masterGain){ applyVolume(); } 
+            renderBandsUIWithEq(merged.eq); 
+            updateEqLabelSurround(); 
+            refreshWordRotatorContent(); 
+        }
+        
+        function renderBandsUIWithEq(eqVals){ 
+            let container=document.getElementById("bandsGrid"); 
+            if(!container) return; 
+            container.innerHTML=""; 
+            for(let i=0;i<FREQ_BANDS.length;i++){ 
+                let val=eqVals[i]; 
+                let bandDiv=document.createElement("div"); 
+                bandDiv.className="band-item"; 
+                bandDiv.innerHTML=`<div class="band-freq">${FREQ_BANDS[i]}</div><div class="band-gain">${val>0?'+'+val:val}</div>`; 
+                container.appendChild(bandDiv); 
+            } 
+        }
+        
+        function updateEqLabelSurround(){ 
+            let lab=document.getElementById("eqLabel"); 
+            if(lab) lab.innerText=isSurroundEnabled?`环绕+${stackedEffects.length}`:currentEffect; 
+        }
+        
+        function renderStackedChips(){ 
+            let container = document.getElementById('stackedEffectsContainer'); 
+            if(!container) return; 
+            if(!isSurroundEnabled || stackedEffects.length===0){ 
+                container.innerHTML=`<div class="stacked-title">🌀 智能环绕未激活</div>`; 
+                return; 
+            } 
+            let html=`<div class="stacked-title">🔊 已叠加 (${stackedEffects.length}/3)</div><div class="stacked-chips">`; 
+            stackedEffects.forEach(eff=>{ 
+                html+=`<div class="stack-chip" data-effect="${eff}">${eff} <span class="remove-stack" data-effect="${eff}">✖</span></div>`; 
+            }); 
+            html+=`</div>`; 
+            container.innerHTML=html; 
+            document.querySelectorAll(".remove-stack").forEach(el=>{ 
+                el.addEventListener("click",(e)=>{ 
+                    e.stopPropagation(); 
+                    let name=el.getAttribute("data-effect"); 
+                    if(name){ 
+                        let idx=stackedEffects.indexOf(name); 
+                        if(idx!==-1) stackedEffects.splice(idx,1); 
+                        if(stackedEffects.length===0) applyMergedSurround(); 
+                        else applyMergedSurround(); 
+                        renderStackedChips(); 
+                        if(document.getElementById("eqModal").classList.contains("active")) renderEQModalMulti(); 
+                        refreshWordRotatorContent(); 
+                    } 
+                }); 
+            }); 
+        }
         
         function toggleSurroundMode(){
             isSurroundEnabled = !isSurroundEnabled;
@@ -747,13 +840,17 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 if(!stackedEffects.includes("🌊 三维海浪环绕")) {
                     stackedEffects.push("🌊 三维海浪环绕");
                 }
+                // 如果当前有效果且不是Original，也加上
                 if(!stackedEffects.includes(currentEffect) && currentEffect!=="Original") {
-                    stackedEffects.unshift(currentEffect);
+                    stackedEffects.push(currentEffect);
                 }
                 applyMergedSurround();
                 start3DSurround();
             } else {
+                // 关闭环绕时，保留最后一个音效作为当前
                 let lastSingle=stackedEffects.length>0?stackedEffects[stackedEffects.length-1]:currentEffect;
+                // 如果是三维海浪环绕，换成Original
+                if(lastSingle === "🌊 三维海浪环绕") lastSingle = "Original";
                 currentEffect=lastSingle;
                 applyEffectSingle();
                 stackedEffects=[];
@@ -770,11 +867,27 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             showToast(isSurroundEnabled ? '🌊 环绕已开启 (三维海浪)' : '环绕已关闭');
         }
 
-        function applyEffectSingle(){ if(!eqFilters.length) return; let preset=EFFECT_PRESETS[currentEffect]; for(let i=0;i<10;i++) eqFilters[i].gain.value=preset.eq[i]; if(stereoPanner) stereoPanner.pan.value=preset.stereo||0; if(drcCompressor){ if(preset.drc) { drcCompressor.threshold.value=-16.8; drcCompressor.ratio.value=3.15; } else { drcCompressor.threshold.value=-100; drcCompressor.ratio.value=1; } } if(reverbWet && reverbDry){ reverbWet.gain.value=(preset.reverb||0)*0.5; reverbDry.gain.value=1-(preset.reverb||0)*0.3; } if(masterGain){ applyVolume(); } renderBandsUIWithEq(preset.eq); updateEqLabelSurround(); refreshWordRotatorContent(); }
+        function applyEffectSingle(){ 
+            if(!eqFilters.length) return; 
+            let preset=EFFECT_PRESETS[currentEffect]; 
+            for(let i=0;i<10;i++) eqFilters[i].gain.value=preset.eq[i]; 
+            if(stereoPanner) stereoPanner.pan.value=preset.stereo||0; 
+            if(drcCompressor){ 
+                if(preset.drc) { drcCompressor.threshold.value=-16.8; drcCompressor.ratio.value=3.15; } 
+                else { drcCompressor.threshold.value=-100; drcCompressor.ratio.value=1; } 
+            } 
+            if(reverbWet && reverbDry){ 
+                reverbWet.gain.value=(preset.reverb||0)*0.5; 
+                reverbDry.gain.value=1-(preset.reverb||0)*0.3; 
+            } 
+            if(masterGain){ applyVolume(); } 
+            renderBandsUIWithEq(preset.eq); 
+            updateEqLabelSurround(); 
+            refreshWordRotatorContent(); 
+        }
         
         function setEffect(effectName){ 
             if(isSurroundEnabled){ 
-                // 最多叠加3个
                 if(stackedEffects.includes(effectName)){ 
                     let idx=stackedEffects.indexOf(effectName); 
                     stackedEffects.splice(idx,1); 
@@ -799,25 +912,105 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             refreshWordRotatorContent(); 
         }
         
-        function renderEQModalMulti(){ let listDiv=document.getElementById("presetList"); if(!listDiv) return; listDiv.innerHTML=""; EFFECT_NAMES.forEach(name=>{ let item=document.createElement("div"); let isSelected=isSurroundEnabled?stackedEffects.includes(name):(currentEffect===name); item.className=`modal-item ${isSelected?(isSurroundEnabled?"multi-selected":"selected"):""}`; let preset=EFFECT_PRESETS[name]; let badge=""; if(preset.drc) badge='<span class="badge-icon">DRC</span>'; else if(preset.reverb>0) badge='<span class="badge-icon">RVB</span>'; else if(preset.stereo>0) badge='<span class="badge-icon">STEREO</span>'; let disabled = isSurroundEnabled && stackedEffects.length >= 3 && !isSelected ? ' style="opacity:0.4;"' : ''; item.innerHTML=`<span class="sound-icon">🎵</span><span>${name}</span>${badge}${isSurroundEnabled && stackedEffects.length >= 3 && !isSelected ? ' <span style="font-size:0.4rem;color:#ff6633;">(已满)</span>' : ''}`; item.setAttribute('data-name', name); item.onclick=()=>{ setEffect(name); renderEQModalMulti(); }; listDiv.appendChild(item); }); }
+        function renderEQModalMulti(){ 
+            let listDiv=document.getElementById("presetList"); 
+            if(!listDiv) return; 
+            listDiv.innerHTML=""; 
+            EFFECT_NAMES.forEach(name=>{ 
+                let item=document.createElement("div"); 
+                let isSelected=isSurroundEnabled?stackedEffects.includes(name):(currentEffect===name); 
+                item.className=`modal-item ${isSelected?(isSurroundEnabled?"multi-selected":"selected"):""}`; 
+                let preset=EFFECT_PRESETS[name]; 
+                let badge=""; 
+                if(preset.drc) badge='<span class="badge-icon">DRC</span>'; 
+                else if(preset.reverb>0) badge='<span class="badge-icon">RVB</span>'; 
+                else if(preset.stereo>0) badge='<span class="badge-icon">STEREO</span>'; 
+                let full = isSurroundEnabled && stackedEffects.length >= 3 && !isSelected ? ' style="opacity:0.4;"' : '';
+                let fullText = isSurroundEnabled && stackedEffects.length >= 3 && !isSelected ? ' <span style="font-size:0.4rem;color:#ff6633;">(已满)</span>' : '';
+                item.innerHTML=`<span class="sound-icon">🎵</span><span>${name}</span>${badge}${fullText}`; 
+                item.setAttribute('data-name', name); 
+                item.onclick=()=>{ setEffect(name); renderEQModalMulti(); }; 
+                listDiv.appendChild(item); 
+            }); 
+        }
         
-        function showMsg(m){ let st=document.getElementById("radioStatus"); if(st){ st.innerHTML=`📢 ${m}`; setTimeout(()=>{ if(stationsList[currentIdx] && !radioPlayer.paused) st.innerHTML=`🎛️ ${isSurroundEnabled?'环绕':currentEffect} | ${stationsList[currentIdx]?.name?.substring(0,18)}`; else if(stationsList[currentIdx]) st.innerHTML=stationsList[currentIdx]?.name?.substring(0,20); else st.innerHTML="AETHERWAVE"; },2000); } }
-        function updateFreqDisplay(raw){ let base=raw/10; let final=base+fineOffset; final=Math.min(108,Math.max(87,final)); let spanTriple=document.getElementById("frequencyValue"); if(spanTriple) spanTriple.innerText=final.toFixed(1); }
-        function prevStation(){ if(!stationsList.length) return; let newIdx=currentIdx-1; if(newIdx<0) newIdx=stationsList.length-1; selectStation(newIdx); }
-        function nextStation(){ if(!stationsList.length) return; let newIdx=currentIdx+1; if(newIdx>=stationsList.length) newIdx=0; selectStation(newIdx); }
-        function selectStation(idx){ if(!stationsList[idx]) return; currentIdx=idx; let st=stationsList[idx]; radioPlayer.pause(); radioPlayer.src=''; setTimeout(()=>{ radioPlayer.src=st.url_resolved; radioPlayer.load(); radioPlayer.play().catch(err=>console.warn("播放失败",err)); },50); let pseudo=875+(idx%25)*7.2; updateFreqDisplay(pseudo); renderStationList(); let statusSpan=document.getElementById("radioStatus"); if(statusSpan) statusSpan.innerHTML=`🎛️ ${isSurroundEnabled?'环绕':currentEffect} | ${st.name.substring(0,20)}`; localStorage.setItem("aetherwave_last_station", st.url_resolved); startQuoteRotation(st.name); refreshWordRotatorContent(); }
-        function renderStationList(){ let cont=document.getElementById("stationListArea"); if(!cont) return; cont.innerHTML=''; stationsList.forEach((st,idx)=>{ let div=document.createElement("div"); div.className=`channel-item ${currentIdx===idx?'active':''}`; div.innerHTML=`<span>${(87+idx*0.45).toFixed(1)} MHz • ${st.name.substring(0,28)}</span><span class="play-icon">▶</span>`; div.onclick=()=>selectStation(idx); cont.appendChild(div); }); }
+        function showMsg(m){ 
+            let st=document.getElementById("radioStatus"); 
+            if(st){ 
+                st.innerHTML=`📢 ${m}`; 
+                setTimeout(()=>{ 
+                    if(stationsList[currentIdx] && !radioPlayer.paused) 
+                        st.innerHTML=`🎛️ ${isSurroundEnabled?'环绕':currentEffect} | ${stationsList[currentIdx]?.name?.substring(0,18)}`; 
+                    else if(stationsList[currentIdx]) 
+                        st.innerHTML=stationsList[currentIdx]?.name?.substring(0,20); 
+                    else st.innerHTML="AETHERWAVE"; 
+                },2000); 
+            } 
+        }
         
-        // ========== 预设按钮 - 三击清除，双击保存 ==========
+        function updateFreqDisplay(raw){ 
+            let base=raw/10; 
+            let final=base+fineOffset; 
+            final=Math.min(108,Math.max(87,final)); 
+            let spanTriple=document.getElementById("frequencyValue"); 
+            if(spanTriple) spanTriple.innerText=final.toFixed(1); 
+        }
+        
+        function prevStation(){ 
+            if(!stationsList.length) return; 
+            let newIdx=currentIdx-1; 
+            if(newIdx<0) newIdx=stationsList.length-1; 
+            selectStation(newIdx); 
+        }
+        
+        function nextStation(){ 
+            if(!stationsList.length) return; 
+            let newIdx=currentIdx+1; 
+            if(newIdx>=stationsList.length) newIdx=0; 
+            selectStation(newIdx); 
+        }
+        
+        function selectStation(idx){ 
+            if(!stationsList[idx]) return; 
+            currentIdx=idx; 
+            let st=stationsList[idx]; 
+            radioPlayer.pause(); 
+            radioPlayer.src=''; 
+            setTimeout(()=>{ 
+                radioPlayer.src=st.url_resolved; 
+                radioPlayer.load(); 
+                radioPlayer.play().catch(err=>console.warn("播放失败",err)); 
+            },50); 
+            let pseudo=875+(idx%25)*7.2; 
+            updateFreqDisplay(pseudo); 
+            renderStationList(); 
+            let statusSpan=document.getElementById("radioStatus"); 
+            if(statusSpan) statusSpan.innerHTML=`🎛️ ${isSurroundEnabled?'环绕':currentEffect} | ${st.name.substring(0,20)}`; 
+            localStorage.setItem("aetherwave_last_station", st.url_resolved); 
+            startQuoteRotation(st.name); 
+            refreshWordRotatorContent(); 
+        }
+        
+        function renderStationList(){ 
+            let cont=document.getElementById("stationListArea"); 
+            if(!cont) return; 
+            cont.innerHTML=''; 
+            stationsList.forEach((st,idx)=>{ 
+                let div=document.createElement("div"); 
+                div.className=`channel-item ${currentIdx===idx?'active':''}`; 
+                div.innerHTML=`<span>${(87+idx*0.45).toFixed(1)} MHz • ${st.name.substring(0,28)}</span><span class="play-icon">▶</span>`; 
+                div.onclick=()=>selectStation(idx); 
+                cont.appendChild(div); 
+            }); 
+        }
+        
+        // ========== 预设按钮 - 单击播放(无提示), 双击保存, 三击清除 ==========
         function bindPresetButton(btn, idx) {
-            // 单击：播放
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                // 检查是否双击/三击
                 if (!presetClickCounts[idx]) presetClickCounts[idx] = 0;
                 presetClickCounts[idx]++;
                 
-                // 显示点击次数徽章
                 let badge = btn.querySelector('.click-badge');
                 if (!badge) {
                     badge = document.createElement('span');
@@ -831,8 +1024,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 presetClickTimers[idx] = setTimeout(() => {
                     const count = presetClickCounts[idx];
                     if (count === 1) {
-                        // 单击：播放
-                        recallPreset(idx);
+                        // 单击：播放 - 无Toast提示
+                        recallPreset(idx, false);
                         badge.classList.remove('show');
                     } else if (count === 2) {
                         // 双击：保存
@@ -850,14 +1043,13 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             btn.addEventListener('dblclick', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                // 双击由 click 处理，这里阻止默认
             });
         }
         
-        function recallPreset(i){ 
+        function recallPreset(i, showToastMsg=true){ 
             let url=presetUrls[i]; 
             if(!url) { 
-                showToast(`P${i+1} 无预设，双击保存`);
+                if(showToastMsg) showToast(`P${i+1} 无预设，双击保存`);
                 return; 
             } 
             radioPlayer.pause(); 
@@ -882,7 +1074,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 startQuoteRotation(null); 
             } 
             refreshWordRotatorContent(); 
-            showToast(`▶️ P${i+1}`);
+            // 单击不显示Toast，静默换台
         }
         
         function saveCurrentPreset(i){ 
@@ -895,7 +1087,6 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                     return; 
                 } 
             } 
-            // 检查是否已存在相同URL
             if(presetUrls[i] === currentUrl) {
                 showToast(`P${i+1} 已保存，无需重复`);
                 return;
@@ -937,16 +1128,104 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             }); 
         }
         
-        function applyVolume(){ if(!masterGain) return; if(isMuted){ masterGain.gain.value = 0; } else { let norm = (volumeRotation + 135) / 180; let vol = Math.min(1.2, Math.max(0, norm)) * 0.85; if(isSurroundEnabled){ let merged = mergeEffects(stackedEffects); vol = vol * Math.pow(10, merged.gain / 20); } else { let preset = EFFECT_PRESETS[currentEffect]; vol = vol * Math.pow(10, (preset.gain || 0) / 20); } previousVolume = vol; masterGain.gain.value = vol; } }
-        function toggleMute(){ isMuted = !isMuted; if(isMuted){ previousVolume = masterGain.gain.value; masterGain.gain.value = 0; } else { masterGain.gain.value = previousVolume; } updateMuteUI(); showToast(isMuted ? "🔇 已静音" : "🔊 已取消静音"); refreshWordRotatorContent(); }
-        function updateMuteUI(){ const headerBtn = document.getElementById('globalMuteBtn'); if(headerBtn) headerBtn.innerHTML = isMuted ? "🎤 开启" : "🔇 静音"; }
-        function setVolumeFromKnob(deg){ volumeRotation = deg; if(!masterGain) return; if(!isMuted){ let norm = (volumeRotation + 135) / 180; let vol = Math.min(1.2, Math.max(0, norm)) * 0.85; if(isSurroundEnabled){ let merged = mergeEffects(stackedEffects); vol = vol * Math.pow(10, merged.gain / 20); } else { let preset = EFFECT_PRESETS[currentEffect]; vol = vol * Math.pow(10, (preset.gain || 0) / 20); } masterGain.gain.value = vol; previousVolume = vol; } else { let norm = (volumeRotation + 135) / 180; let vol = Math.min(1.2, Math.max(0, norm)) * 0.85; previousVolume = vol; } }
-        function startQuoteRotation(stationName=null){ let qDiv=document.getElementById("rollingQuote"); if(qDiv){ let msg=stationName?`🎧 收听 ${stationName.substring(0,26)} 🎧`:"✨ AETHERWAVE · 三维海浪环绕 ✨"; qDiv.innerText=msg; } }
-        function refreshWordRotatorContent(){ let el=document.getElementById("wordRotator"); if(!el) return; let stationName = (currentIdx !== -1 && stationsList[currentIdx]) ? stationsList[currentIdx].name.substring(0, 18) : "未选择"; let effectName = isSurroundEnabled? (stackedEffects.length?stackedEffects.join('+'):"标准") : currentEffect; let surroundStatus = isSurroundEnabled ? "🌐 ON" : "⬜ OFF"; let hour = new Date().getHours(); let themeIdx = 0; let themeNames=["🌙 玄墨·夜阑","🌌 深靛·星沉","🌄 破晓·紫气","🌅 晨曦·鎏金","🍃 朝露·清欢","☀️ 曜日·煌煌","🌞 正午·炽白","🌇 午后·琥珀","🌤️ 夕照·熔岩","🌆 暮色·绛霞","🌠 夜澜·星河","🌚 子夜·霜天"]; let hourMap=[0,2,4,6,8,10,12,14,16,18,20,22]; for(let i=hourMap.length-1;i>=0;i--) if(hour>=hourMap[i]){ themeIdx=i; break; } el.innerText = `📻 ${stationName} · 🎛️ ${effectName} · ${surroundStatus} · ${themeNames[themeIdx]}`; }
-        function startWordRotator(){ if(wordRotatorInterval) clearInterval(wordRotatorInterval); refreshWordRotatorContent(); wordRotatorInterval = setInterval(refreshWordRotatorContent, 3000); }
-        function getSpectrumCardHTML(){ return `<div class="spectrum-card"><div class="quote-header"><span class="time-slot-title" id="slotTitle">☀️ 白昼疗愈</span><span class="radio-status" id="radioStatus">AETHERWAVE</span></div><div class="viz-wrapper"><canvas id="waveCanvas"></canvas><canvas id="spectrumCanvas"></canvas><div class="crt-overlay"></div></div><div class="quote-scroll-area"><div class="rolling-quote" id="rollingQuote">✨ 点击EQ选择ByteAudio完整音效 ✨</div></div><div class="eq-bands-panel"><div class="bands-title"><span>🎛️ ByteAudio专业EQ（10段）</span><span>libbyteaudio</span></div><div class="bands-grid" id="bandsGrid"></div></div></div>`; }
-        function getStationListHTML(){ return `<div class="channel-section"><div class="section-title">📡 全球频谱 · 实时电台</div><div class="station-list" id="stationListArea"></div></div>`; }
-        function getControlCardHTML(){ return `<div class="control-card"><div class="section-title"><span>🎮 控制面板</span><span>智能环绕多选</span></div><div class="control-deck"><div class="triple-control-header"><div class="triple-actions"><div class="action-btn" id="eqToggleBtn">🎛️ 音效<br><span class="eq-label" id="eqLabel">Original</span></div></div><div class="triple-actions-right"><div class="action-btn" id="surroundToggleBtn">🌀 环绕<br><span style="font-size:0.45rem;">OFF</span></div></div></div><div class="triple-preset-area"><div class="preset-row" id="presetRowTriple1"></div><div class="preset-row" id="presetRowTriple2"></div></div><div class="freq-row"><div class="freq-arrow" id="freqStepLeft">◀</div><span class="freq-num" id="frequencyValue">99.5</span><span class="freq-unit">MHz</span><div class="freq-arrow" id="freqStepRight">▶</div></div><div id="stackedEffectsContainer" class="stacked-container"></div></div></div>`; }
+        function applyVolume(){ 
+            if(!masterGain) return; 
+            if(isMuted){ masterGain.gain.value = 0; } 
+            else { 
+                let norm = (volumeRotation + 135) / 180; 
+                let vol = Math.min(1.2, Math.max(0, norm)) * 0.85; 
+                if(isSurroundEnabled){ 
+                    let merged = mergeEffects(stackedEffects); 
+                    vol = vol * Math.pow(10, merged.gain / 20); 
+                } else { 
+                    let preset = EFFECT_PRESETS[currentEffect]; 
+                    vol = vol * Math.pow(10, (preset.gain || 0) / 20); 
+                } 
+                previousVolume = vol; 
+                masterGain.gain.value = vol; 
+            } 
+        }
+        
+        function toggleMute(){ 
+            isMuted = !isMuted; 
+            if(isMuted){ 
+                previousVolume = masterGain.gain.value; 
+                masterGain.gain.value = 0; 
+            } else { 
+                masterGain.gain.value = previousVolume; 
+            } 
+            updateMuteUI(); 
+            showToast(isMuted ? "🔇 已静音" : "🔊 已取消静音"); 
+            refreshWordRotatorContent(); 
+        }
+        
+        function updateMuteUI(){ 
+            const headerBtn = document.getElementById('globalMuteBtn'); 
+            if(headerBtn) headerBtn.innerHTML = isMuted ? "🎤 开启" : "🔇 静音"; 
+        }
+        
+        function setVolumeFromKnob(deg){ 
+            volumeRotation = deg; 
+            if(!masterGain) return; 
+            if(!isMuted){ 
+                let norm = (volumeRotation + 135) / 180; 
+                let vol = Math.min(1.2, Math.max(0, norm)) * 0.85; 
+                if(isSurroundEnabled){ 
+                    let merged = mergeEffects(stackedEffects); 
+                    vol = vol * Math.pow(10, merged.gain / 20); 
+                } else { 
+                    let preset = EFFECT_PRESETS[currentEffect]; 
+                    vol = vol * Math.pow(10, (preset.gain || 0) / 20); 
+                } 
+                masterGain.gain.value = vol; 
+                previousVolume = vol; 
+            } else { 
+                let norm = (volumeRotation + 135) / 180; 
+                let vol = Math.min(1.2, Math.max(0, norm)) * 0.85; 
+                previousVolume = vol; 
+            } 
+        }
+        
+        function startQuoteRotation(stationName=null){ 
+            let qDiv=document.getElementById("rollingQuote"); 
+            if(qDiv){ 
+                let msg=stationName?`🎧 收听 ${stationName.substring(0,26)} 🎧`:"✨ AETHERWAVE · 三维海浪环绕 ✨"; 
+                qDiv.innerText=msg; 
+            } 
+        }
+        
+        function refreshWordRotatorContent(){ 
+            let el=document.getElementById("wordRotator"); 
+            if(!el) return; 
+            let stationName = (currentIdx !== -1 && stationsList[currentIdx]) ? stationsList[currentIdx].name.substring(0, 18) : "未选择"; 
+            let effectName = isSurroundEnabled? (stackedEffects.length?stackedEffects.join('+'):"标准") : currentEffect; 
+            let surroundStatus = isSurroundEnabled ? "🌐 ON" : "⬜ OFF"; 
+            let hour = new Date().getHours(); 
+            let themeIdx = 0; 
+            let themeNames=["🌙 玄墨·夜阑","🌌 深靛·星沉","🌄 破晓·紫气","🌅 晨曦·鎏金","🍃 朝露·清欢","☀️ 曜日·煌煌","🌞 正午·炽白","🌇 午后·琥珀","🌤️ 夕照·熔岩","🌆 暮色·绛霞","🌠 夜澜·星河","🌚 子夜·霜天"]; 
+            let hourMap=[0,2,4,6,8,10,12,14,16,18,20,22]; 
+            for(let i=hourMap.length-1;i>=0;i--) if(hour>=hourMap[i]){ themeIdx=i; break; } 
+            el.innerText = `📻 ${stationName} · 🎛️ ${effectName} · ${surroundStatus} · ${themeNames[themeIdx]}`; 
+        }
+        
+        function startWordRotator(){ 
+            if(wordRotatorInterval) clearInterval(wordRotatorInterval); 
+            refreshWordRotatorContent(); 
+            wordRotatorInterval = setInterval(refreshWordRotatorContent, 3000); 
+        }
+        
+        function getSpectrumCardHTML(){ 
+            return `<div class="spectrum-card"><div class="quote-header"><span class="time-slot-title" id="slotTitle">☀️ 白昼疗愈</span><span class="radio-status" id="radioStatus">AETHERWAVE</span></div><div class="viz-wrapper"><canvas id="waveCanvas"></canvas><canvas id="spectrumCanvas"></canvas><div class="crt-overlay"></div></div><div class="quote-scroll-area"><div class="rolling-quote" id="rollingQuote">✨ 点击EQ选择ByteAudio完整音效 ✨</div></div><div class="eq-bands-panel"><div class="bands-title"><span>🎛️ ByteAudio专业EQ（10段）</span><span>libbyteaudio</span></div><div class="bands-grid" id="bandsGrid"></div></div></div>`; 
+        }
+        
+        function getStationListHTML(){ 
+            return `<div class="channel-section"><div class="section-title">📡 全球频谱 · 实时电台</div><div class="station-list" id="stationListArea"></div></div>`; 
+        }
+        
+        function getControlCardHTML(){ 
+            return `<div class="control-card"><div class="section-title"><span>🎮 控制面板</span><span>智能环绕多选</span></div><div class="control-deck"><div class="triple-control-header"><div class="triple-actions"><div class="action-btn" id="eqToggleBtn">🎛️ 音效<br><span class="eq-label" id="eqLabel">Original</span></div></div><div class="triple-actions-right"><div class="action-btn" id="surroundToggleBtn">🌀 环绕<br><span style="font-size:0.45rem;">OFF</span></div></div></div><div class="triple-preset-area"><div class="preset-row" id="presetRowTriple1"></div><div class="preset-row" id="presetRowTriple2"></div></div><div class="freq-row"><div class="freq-arrow" id="freqStepLeft">◀</div><span class="freq-num" id="frequencyValue">99.5</span><span class="freq-unit">MHz</span><div class="freq-arrow" id="freqStepRight">▶</div></div><div id="stackedEffectsContainer" class="stacked-container"></div></div></div>`; 
+        }
+        
         function renderLayout(){ 
             layoutRoot.innerHTML = `<div class="triple-panel">${getStationListHTML()}${getSpectrumCardHTML()}${getControlCardHTML()}</div>`; 
             rebindAllEvents(); 
@@ -958,6 +1237,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 }
             }, 150);
         }
+        
         function initCanvasSize(){
             let wc = document.getElementById('waveCanvas');
             let sc = document.getElementById('spectrumCanvas');
@@ -978,21 +1258,66 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 sc.style.height = h + 'px';
             }
         }
+        
         function rebindAllEvents(){
             renderStationList();
-            let eqBtn=document.getElementById('eqToggleBtn'); if(eqBtn) eqBtn.onclick=()=>{ renderEQModalMulti(); document.getElementById('eqModal').classList.add('active'); };
-            let surroundBtn=document.getElementById('surroundToggleBtn'); if(surroundBtn) surroundBtn.onclick=()=>{ toggleSurroundMode(); };
-            let leftArrow=document.getElementById('freqStepLeft'); if(leftArrow) leftArrow.onclick=()=>{ if(stationsList.length) prevStation(); };
-            let rightArrow=document.getElementById('freqStepRight'); if(rightArrow) rightArrow.onclick=()=>{ if(stationsList.length) nextStation(); };
-            let row1=document.getElementById('presetRowTriple1'); let row2=document.getElementById('presetRowTriple2');
-            if(row1 && row2){ row1.innerHTML=''; row2.innerHTML=''; for(let i=0;i<6;i++){ let btn=document.createElement('button'); btn.className='preset-btn'; btn.innerHTML=`P${i+1}<span class="preset-label"></span><span class="click-badge"></span>`; bindPresetButton(btn, i); row1.appendChild(btn); } for(let i=6;i<9;i++){ let btn=document.createElement('button'); btn.className='preset-btn'; btn.innerHTML=`P${i+1}<span class="preset-label"></span><span class="click-badge"></span>`; bindPresetButton(btn, i); row2.appendChild(btn); } updatePresetUI(); }
-            let closeModalBtn = document.getElementById('closeModal'); if(closeModalBtn) closeModalBtn.onclick = () => document.getElementById('eqModal').classList.remove('active');
-            let eqModal = document.getElementById('eqModal'); if(eqModal) eqModal.onclick = (e) => { if(e.target === eqModal) eqModal.classList.remove('active'); };
-            if(isSurroundEnabled) applyMergedSurround(); else applyEffectSingle();
+            let eqBtn=document.getElementById('eqToggleBtn'); 
+            if(eqBtn) eqBtn.onclick=()=>{ renderEQModalMulti(); document.getElementById('eqModal').classList.add('active'); };
+            let surroundBtn=document.getElementById('surroundToggleBtn'); 
+            if(surroundBtn) surroundBtn.onclick=()=>{ toggleSurroundMode(); };
+            let leftArrow=document.getElementById('freqStepLeft'); 
+            if(leftArrow) leftArrow.onclick=()=>{ if(stationsList.length) prevStation(); };
+            let rightArrow=document.getElementById('freqStepRight'); 
+            if(rightArrow) rightArrow.onclick=()=>{ if(stationsList.length) nextStation(); };
+            let row1=document.getElementById('presetRowTriple1'); 
+            let row2=document.getElementById('presetRowTriple2');
+            if(row1 && row2){ 
+                row1.innerHTML=''; 
+                row2.innerHTML=''; 
+                for(let i=0;i<6;i++){ 
+                    let btn=document.createElement('button'); 
+                    btn.className='preset-btn'; 
+                    btn.innerHTML=`P${i+1}<span class="preset-label"></span><span class="click-badge"></span>`; 
+                    bindPresetButton(btn, i); 
+                    row1.appendChild(btn); 
+                } 
+                for(let i=6;i<9;i++){ 
+                    let btn=document.createElement('button'); 
+                    btn.className='preset-btn'; 
+                    btn.innerHTML=`P${i+1}<span class="preset-label"></span><span class="click-badge"></span>`; 
+                    bindPresetButton(btn, i); 
+                    row2.appendChild(btn); 
+                } 
+                updatePresetUI(); 
+            }
+            let closeModalBtn = document.getElementById('closeModal'); 
+            if(closeModalBtn) closeModalBtn.onclick = () => document.getElementById('eqModal').classList.remove('active');
+            let eqModal = document.getElementById('eqModal'); 
+            if(eqModal) eqModal.onclick = (e) => { if(e.target === eqModal) eqModal.classList.remove('active'); };
+            if(isSurroundEnabled) applyMergedSurround(); 
+            else applyEffectSingle();
             renderStackedChips();
             initCanvasSize();
         }
-        async function fetchStations(country){ try{ let res=await fetch(`https://de1.api.radio-browser.info/json/stations/bycountry/${encodeURIComponent(country)}?limit=35&order=clickcount&reverse=true`); let data=await res.json(); stationsList=data.filter(s=>s.url_resolved && s.url_resolved.startsWith("http")).slice(0,35); renderStationList(); let last=localStorage.getItem("aetherwave_last_station"); let idx=last?stationsList.findIndex(s=>s.url_resolved===last):-1; if(idx!==-1) selectStation(idx); else if(stationsList.length) selectStation(0); updatePresetUI(); refreshWordRotatorContent(); } catch(e){ let area=document.getElementById("stationListArea"); if(area) area.innerHTML="<div style='padding:20px;'>📡 信号弱</div>"; } }
+        
+        async function fetchStations(country){ 
+            try{ 
+                let res=await fetch(`https://de1.api.radio-browser.info/json/stations/bycountry/${encodeURIComponent(country)}?limit=35&order=clickcount&reverse=true`); 
+                let data=await res.json(); 
+                stationsList=data.filter(s=>s.url_resolved && s.url_resolved.startsWith("http")).slice(0,35); 
+                renderStationList(); 
+                let last=localStorage.getItem("aetherwave_last_station"); 
+                let idx=last?stationsList.findIndex(s=>s.url_resolved===last):-1; 
+                if(idx!==-1) selectStation(idx); 
+                else if(stationsList.length) selectStation(0); 
+                updatePresetUI(); 
+                refreshWordRotatorContent(); 
+            } catch(e){ 
+                let area=document.getElementById("stationListArea"); 
+                if(area) area.innerHTML="<div style='padding:20px;'>📡 信号弱</div>"; 
+            } 
+        }
+        
         function startVisuals(){ 
             function draw(){ 
                 if(!isPowered){ 
@@ -1075,9 +1400,69 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             } 
             frameId=requestAnimationFrame(draw); 
         }
-        async function initAudioChain(){ if(audioCtx) return; audioCtx=new (window.AudioContext||window.webkitAudioContext)(); await audioCtx.resume(); radioPlayer.crossOrigin="anonymous"; let source=audioCtx.createMediaElementSource(radioPlayer); analyser=audioCtx.createAnalyser(); analyser.fftSize=1024; masterGain=audioCtx.createGain(); masterGain.gain.value=0.85; stereoPanner=audioCtx.createStereoPanner(); drcCompressor=audioCtx.createDynamicsCompressor(); drcCompressor.threshold.value=-100; drcCompressor.ratio.value=1; reverbDry=audioCtx.createGain(); reverbWet=audioCtx.createGain(); let sampleRate=audioCtx.sampleRate; let length=sampleRate*1.2; let impulse=audioCtx.createBuffer(2,length,sampleRate); let left=impulse.getChannelData(0),right=impulse.getChannelData(1); for(let i=0;i<length;i++){ let n=i/length, decay=Math.exp(-n*4.5); left[i]=(Math.random()-0.5)*decay*0.5; right[i]=(Math.random()-0.5)*decay*0.5; } reverbNode=audioCtx.createConvolver(); reverbNode.buffer=impulse; reverbDry.gain.value=1; reverbWet.gain.value=0; let freqs=[31,62,125,250,500,1000,2000,4000,8000,14000]; let prevNode=source; eqFilters=[]; for(let i=0;i<10;i++){ let f=audioCtx.createBiquadFilter(); f.type="peaking"; f.frequency.value=freqs[i]; f.Q.value=1; f.gain.value=0; prevNode.connect(f); eqFilters.push(f); prevNode=f; } prevNode.connect(stereoPanner); stereoPanner.connect(drcCompressor); drcCompressor.connect(reverbDry); drcCompressor.connect(reverbNode); reverbNode.connect(reverbWet); reverbDry.connect(analyser); reverbWet.connect(analyser); analyser.connect(masterGain); masterGain.connect(audioCtx.destination); if(isSurroundEnabled) applyMergedSurround(); else applyEffectSingle(); }
+        
+        async function initAudioChain(){ 
+            if(audioCtx) return; 
+            audioCtx=new (window.AudioContext||window.webkitAudioContext)(); 
+            await audioCtx.resume(); 
+            radioPlayer.crossOrigin="anonymous"; 
+            let source=audioCtx.createMediaElementSource(radioPlayer); 
+            analyser=audioCtx.createAnalyser(); 
+            analyser.fftSize=1024; 
+            masterGain=audioCtx.createGain(); 
+            masterGain.gain.value=0.85; 
+            stereoPanner=audioCtx.createStereoPanner(); 
+            drcCompressor=audioCtx.createDynamicsCompressor(); 
+            drcCompressor.threshold.value=-100; 
+            drcCompressor.ratio.value=1; 
+            reverbDry=audioCtx.createGain(); 
+            reverbWet=audioCtx.createGain(); 
+            let sampleRate=audioCtx.sampleRate; 
+            let length=sampleRate*1.2; 
+            let impulse=audioCtx.createBuffer(2,length,sampleRate); 
+            let left=impulse.getChannelData(0),right=impulse.getChannelData(1); 
+            for(let i=0;i<length;i++){ 
+                let n=i/length, decay=Math.exp(-n*4.5); 
+                left[i]=(Math.random()-0.5)*decay*0.5; 
+                right[i]=(Math.random()-0.5)*decay*0.5; 
+            } 
+            reverbNode=audioCtx.createConvolver(); 
+            reverbNode.buffer=impulse; 
+            reverbDry.gain.value=1; 
+            reverbWet.gain.value=0; 
+            let freqs=[31,62,125,250,500,1000,2000,4000,8000,14000]; 
+            let prevNode=source; 
+            eqFilters=[]; 
+            for(let i=0;i<10;i++){ 
+                let f=audioCtx.createBiquadFilter(); 
+                f.type="peaking"; 
+                f.frequency.value=freqs[i]; 
+                f.Q.value=1; 
+                f.gain.value=0; 
+                prevNode.connect(f); 
+                eqFilters.push(f); 
+                prevNode=f; 
+            } 
+            prevNode.connect(stereoPanner); 
+            stereoPanner.connect(drcCompressor); 
+            drcCompressor.connect(reverbDry); 
+            drcCompressor.connect(reverbNode); 
+            reverbNode.connect(reverbWet); 
+            reverbDry.connect(analyser); 
+            reverbWet.connect(analyser); 
+            analyser.connect(masterGain); 
+            masterGain.connect(audioCtx.destination); 
+            if(isSurroundEnabled) applyMergedSurround(); 
+            else applyEffectSingle(); 
+        }
+        
         function startMainApp(){
-            let pre=localStorage.getItem("aetherwave_presets"); if(pre) try{ let arr=JSON.parse(pre); if(arr.length<9) arr=[...arr, ...new Array(9-arr.length).fill("")]; presetUrls=arr; }catch(e){}
+            let pre=localStorage.getItem("aetherwave_presets"); 
+            if(pre) try{ 
+                let arr=JSON.parse(pre); 
+                if(arr.length<9) arr=[...arr, ...new Array(9-arr.length).fill("")]; 
+                presetUrls=arr; 
+            }catch(e){}
             startQuoteRotation(); 
             let countrySelect = document.getElementById("countrySelect");
             if(countrySelect) {
@@ -1086,8 +1471,25 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             }
             updatePresetUI(); 
             renderLayout(); 
-            setInterval(()=>{ let now=new Date(); document.getElementById("liveClock").innerText=now.toLocaleTimeString(); let hour=now.getHours(); let themeMap=[0,2,4,6,8,10,12,14,16,18,20,22]; let idx=0; for(let i=themeMap.length-1;i>=0;i--) if(hour>=themeMap[i]){ idx=i; break; } let slotSpan=document.getElementById("slotTitle"); if(slotSpan) slotSpan.innerHTML = ["🌙 玄墨·夜阑","🌌 深靛·星沉","🌄 破晓·紫气","🌅 晨曦·鎏金","🍃 朝露·清欢","☀️ 曜日·煌煌","🌞 正午·炽白","🌇 午后·琥珀","🌤️ 夕照·熔岩","🌆 暮色·绛霞","🌠 夜澜·星河","🌚 子夜·霜天"][idx]; }, 1000); startWordRotator(); let headerMuteBtn = document.getElementById('globalMuteBtn'); if(headerMuteBtn) headerMuteBtn.onclick = toggleMute; }
-        function globalAudioActivator(){ if(audioCtx && audioCtx.state==='suspended') audioCtx.resume(); if(radioPlayer.paused && radioPlayer.src) radioPlayer.play().catch(()=>{}); }
+            setInterval(()=>{ 
+                let now=new Date(); 
+                document.getElementById("liveClock").innerText=now.toLocaleTimeString(); 
+                let hour=now.getHours(); 
+                let themeMap=[0,2,4,6,8,10,12,14,16,18,20,22]; 
+                let idx=0; 
+                for(let i=themeMap.length-1;i>=0;i--) if(hour>=themeMap[i]){ idx=i; break; } 
+                let slotSpan=document.getElementById("slotTitle"); 
+                if(slotSpan) slotSpan.innerHTML = ["🌙 玄墨·夜阑","🌌 深靛·星沉","🌄 破晓·紫气","🌅 晨曦·鎏金","🍃 朝露·清欢","☀️ 曜日·煌煌","🌞 正午·炽白","🌇 午后·琥珀","🌤️ 夕照·熔岩","🌆 暮色·绛霞","🌠 夜澜·星河","🌚 子夜·霜天"][idx]; 
+            }, 1000); 
+            startWordRotator(); 
+            let headerMuteBtn = document.getElementById('globalMuteBtn'); 
+            if(headerMuteBtn) headerMuteBtn.onclick = toggleMute; 
+        }
+        
+        function globalAudioActivator(){ 
+            if(audioCtx && audioCtx.state==='suspended') audioCtx.resume(); 
+            if(radioPlayer.paused && radioPlayer.src) radioPlayer.play().catch(()=>{}); 
+        }
         
         window.addEventListener('load',()=>{ 
             startMainApp(); 
@@ -1121,7 +1523,7 @@ if __name__ == '__main__':
     print("="*60)
     print(f"  🌐 访问地址: http://localhost:{port}")
     print("  📻 全球电台 · 三维海浪环绕")
-    print("  🎛️ P键: 单击播放 | 双击保存 | 三击清除")
+    print("  🎛️ P键: 单击播放(无提示) | 双击保存 | 三击清除")
     print("  🌊 环绕默认开启三维海浪, 最多叠加3个音效")
     print("="*60)
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
