@@ -178,6 +178,21 @@ def proxy_stream(url):
         print(f"流式播放失败: {e}")
         return None
 
+# ==================== 获取已下载歌曲列表 ====================
+def get_downloaded_songs():
+    songs = []
+    if os.path.exists(DOWNLOAD_DIR):
+        for f in os.listdir(DOWNLOAD_DIR):
+            if f.endswith('.mp3'):
+                # 解析文件名 歌手 - 歌曲.mp3
+                name = f.replace('.mp3', '')
+                parts = name.split(' - ', 1)
+                if len(parts) == 2:
+                    songs.append({'song': parts[1], 'singer': parts[0], 'file': f})
+                else:
+                    songs.append({'song': name, 'singer': '未知', 'file': f})
+    return songs
+
 # ==================== HTML 模板 ====================
 
 HTML_TEMPLATE = '''
@@ -193,13 +208,12 @@ HTML_TEMPLATE = '''
         body{background:linear-gradient(135deg,var(--bg1),var(--bg2),var(--bg3));min-height:100vh;padding:12px;color:var(--text);padding-bottom:160px}
         .container{max-width:800px;margin:0 auto}
         
-        .header{text-align:center;padding:18px 0 10px}
+        .header{text-align:center;padding:18px 0 10px;cursor:pointer}
         .header h1{font-size:30px;background:linear-gradient(135deg,var(--primary),var(--primary2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline-block;white-space:nowrap}
         .header .sub{color:var(--text2);font-size:13px;margin-top:4px}
         .header .version{display:inline-block;background:rgba(255,215,0,0.12);color:#ffd700;padding:2px 12px;border-radius:12px;font-size:11px;margin-top:3px}
         .header .lyric{color:#ffd700;font-size:12px;margin-top:6px;opacity:0.5;font-style:italic}
         
-        /* ===== 炫彩脉冲音乐图标 ===== */
         .music-icon-pulse{display:inline-block;font-size:30px;margin-right:6px;animation:colorPulse 2s ease-in-out infinite, iconPulse 1.2s ease-in-out infinite;vertical-align:middle}
         @keyframes colorPulse{
             0%{color:#ff6b6b;text-shadow:0 0 10px rgba(255,107,107,0.5)}
@@ -209,11 +223,7 @@ HTML_TEMPLATE = '''
             80%{color:#9b59b6;text-shadow:0 0 15px rgba(155,89,182,0.6)}
             100%{color:#ff6b6b;text-shadow:0 0 10px rgba(255,107,107,0.5)}
         }
-        @keyframes iconPulse{
-            0%,100%{transform:scale(1)}
-            50%{transform:scale(1.15)}
-        }
-        /* 卡片播放中图标炫彩 */
+        @keyframes iconPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
         .song-card.playing .card-icon{animation:colorPulse 1.8s ease-in-out infinite, iconPulse 1s ease-in-out infinite !important;opacity:1 !important}
         
         .search-box{background:var(--card);border-radius:14px;padding:14px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05)}
@@ -221,11 +231,12 @@ HTML_TEMPLATE = '''
         .search-row input{flex:1;min-width:100px;padding:11px 14px;border:none;border-radius:10px;font-size:14px;background:rgba(255,255,255,0.08);color:#fff;outline:none}
         .search-row input:focus{background:rgba(255,255,255,0.13);box-shadow:0 0 20px rgba(255,215,0,0.06)}
         .search-row input::placeholder{color:#555}
-        .search-row button{padding:11px 16px;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;transition:0.2s}
+        .search-row button{padding:11px 14px;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;transition:0.2s}
         .search-row button:active{transform:scale(0.95)}
         .btn-search{background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e}
         .btn-singer{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff}
         .btn-fav{background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff}
+        .btn-downloaded{background:linear-gradient(135deg,#17a2b8,#0d6efd);color:#fff}
         
         .quick-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
         .quick-tags button{padding:4px 12px;border:none;border-radius:14px;font-size:11px;cursor:pointer;background:rgba(255,255,255,0.05);color:#aaa;transition:0.2s}
@@ -251,6 +262,7 @@ HTML_TEMPLATE = '''
         .card-btn-fav{background:#e74c3c;color:#fff;font-size:14px;padding:4px 8px;border-radius:8px;border:none;cursor:pointer}
         .card-btn-fav.active{background:#555}
         .card-badge{position:absolute;top:6px;right:6px;font-size:9px;background:rgba(255,215,0,0.15);color:#ffd700;padding:1px 8px;border-radius:8px}
+        .card-badge.local{background:rgba(23,162,184,0.2);color:#17a2b8}
         
         .download-status{background:var(--card);border-radius:12px;padding:14px;margin-top:12px;border:1px solid rgba(255,215,0,0.08);display:none}
         .download-status .bar{width:100%;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;margin-top:6px}
@@ -293,12 +305,19 @@ HTML_TEMPLATE = '''
         .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#fff;padding:10px 24px;border-radius:10px;font-size:14px;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none}
         .toast.show{opacity:1}
         
+        .waiting-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;display:none;justify-content:center;align-items:center;flex-direction:column}
+        .waiting-overlay.show{display:flex}
+        .waiting-overlay .spinner-big{width:60px;height:60px;border:4px solid rgba(255,255,255,0.1);border-top:4px solid #ffd700;border-radius:50%;animation:spin 1s linear infinite}
+        .waiting-overlay .waiting-text{color:#fff;font-size:18px;margin-top:20px;animation:pulseText 1s ease-in-out infinite}
+        @keyframes pulseText{0%,100%{opacity:1}50%{opacity:0.5}}
+        .waiting-overlay .waiting-time{color:#ffd700;font-size:14px;margin-top:8px}
+        
         @media(max-width:480px){
             .song-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
             .song-card{padding:12px 10px;min-height:90px}
             .song-card .card-name{font-size:13px}
             .search-row input{min-width:70px;font-size:13px;padding:9px 12px}
-            .search-row button{padding:9px 12px;font-size:12px}
+            .search-row button{padding:9px 10px;font-size:11px}
             .header h1{font-size:22px;white-space:nowrap}
             .player{padding:8px 12px}
             .player .top-row .btn-play-pause{width:34px;height:34px;font-size:16px}
@@ -312,6 +331,13 @@ HTML_TEMPLATE = '''
 <body>
 <div class="toast" id="toast"></div>
 
+<!-- 等待遮罩 -->
+<div class="waiting-overlay" id="waitingOverlay">
+    <div class="spinner-big"></div>
+    <div class="waiting-text">⏳ 正在加载歌曲...</div>
+    <div class="waiting-time" id="waitingTime">等待 0 秒</div>
+</div>
+
 <div class="volume-popup" id="volumePopup">
     <div class="vol-icon" id="volIcon">🔊</div>
     <div class="vol-label">音量</div>
@@ -320,7 +346,7 @@ HTML_TEMPLATE = '''
 </div>
 
 <div class="container">
-    <div class="header">
+    <div class="header" onclick="goHome()">
         <h1>
             <span class="music-icon-pulse">🎵</span>
             最酷音乐下歌精灵
@@ -336,6 +362,7 @@ HTML_TEMPLATE = '''
             <button class="btn-search" onclick="searchMusic()">🔍</button>
             <button class="btn-singer" onclick="searchBySinger()">🎤</button>
             <button class="btn-fav" onclick="showFavorites()">❤️</button>
+            <button class="btn-downloaded" onclick="showDownloaded()">📂</button>
         </div>
         <div class="quick-tags" id="quickTags"></div>
     </div>
@@ -344,6 +371,7 @@ HTML_TEMPLATE = '''
         <button class="active" onclick="switchTab('recommend')">🔥 推荐</button>
         <button onclick="switchTab('search')">📋 搜索结果</button>
         <button onclick="switchTab('favorites')">❤️ 收藏</button>
+        <button onclick="switchTab('downloaded')">📂 已下载</button>
     </div>
     
     <div id="loading" class="loading"><div class="spinner"></div><p style="color:#888;margin-top:6px;font-size:13px">加载中...</p></div>
@@ -398,6 +426,8 @@ let isPlaying = false;
 let shuffledIndices = [];
 let shuffleIndex = 0;
 let volumeTimeout = null;
+let waitingTimer = null;
+let waitingSeconds = 0;
 
 // ==================== Toast ====================
 function showToast(msg) {
@@ -406,6 +436,11 @@ function showToast(msg) {
     el.classList.add('show');
     clearTimeout(el._timer);
     el._timer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ==================== 跳转主页 ====================
+function goHome() {
+    window.location.href = '/';
 }
 
 // ==================== 音量控制 ====================
@@ -505,10 +540,10 @@ function loadPlayerState() {
 }
 
 // ==================== 渲染卡片 ====================
-function renderSongs(songs, showFavoriteBtn=true) {
+function renderSongs(songs, showFavoriteBtn=true, isLocal=false) {
     const container = document.getElementById('songGrid');
     if (!songs || songs.length === 0) {
-        container.innerHTML = '<div class="empty">🎵 暂无歌曲，试试搜索吧</div>';
+        container.innerHTML = '<div class="empty">🎵 暂无歌曲</div>';
         return;
     }
     currentSongs = songs;
@@ -518,9 +553,11 @@ function renderSongs(songs, showFavoriteBtn=true) {
     container.innerHTML = songs.map((song, idx) => {
         const fav = isFavorite(song);
         const isCurrent = (idx === currentPlayIndex);
+        const localBadge = isLocal ? '<div class="card-badge local">📂 本地</div>' : '';
+        const badge = isCurrent ? '<div class="card-badge">▶ 播放中</div>' : localBadge;
         return `
         <div class="song-card ${isCurrent ? 'playing' : ''}" id="card-${idx}" onclick="playSong(${idx})">
-            ${isCurrent ? '<div class="card-badge">▶ 播放中</div>' : ''}
+            ${badge}
             <div class="card-icon">${isCurrent ? '🎵' : '🎶'}</div>
             <div class="card-name">${song.song}</div>
             <div class="card-singer" onclick="event.stopPropagation();searchSinger('${song.singer}')">${song.singer}</div>
@@ -540,10 +577,12 @@ function renderSongs(songs, showFavoriteBtn=true) {
 function switchTab(tab) {
     currentTab = tab;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
-    const map = {'recommend':0,'search':1,'favorites':2};
-    document.querySelectorAll('.tabs button')[map[tab]].classList.add('active');
+    const map = {'recommend':0,'search':1,'favorites':2,'downloaded':3};
+    const btns = document.querySelectorAll('.tabs button');
+    if (map[tab] !== undefined) btns[map[tab]].classList.add('active');
     if (tab === 'recommend') loadRecommend();
     else if (tab === 'favorites') showFavorites();
+    else if (tab === 'downloaded') showDownloaded();
 }
 
 function loadRecommend() {
@@ -574,6 +613,27 @@ function quickSearch(k) { document.getElementById('keyword').value = k; searchMu
 function searchBySinger() { const s = prompt('请输入歌手名称：'); if(s && s.trim()) { document.getElementById('keyword').value=s; searchMusic(); } }
 function searchSinger(s) { document.getElementById('keyword').value=s; searchMusic(); }
 
+// ==================== 已下载 ====================
+function showDownloaded() {
+    showLoading(true);
+    fetch('/api/downloaded')
+        .then(res => res.json())
+        .then(data => {
+            showLoading(false);
+            if (data.code === 200 && data.data.length > 0) {
+                renderSongs(data.data, false, true);
+                switchTab('downloaded');
+            } else {
+                document.getElementById('songGrid').innerHTML = '<div class="empty">📂 还没有下载歌曲</div>';
+                switchTab('downloaded');
+            }
+        })
+        .catch(() => {
+            showLoading(false);
+            document.getElementById('songGrid').innerHTML = '<div class="empty">❌ 加载失败</div>';
+        });
+}
+
 // ==================== 收藏 ====================
 function toggleFavorite(idx) {
     const song = currentSongs[idx];
@@ -597,13 +657,37 @@ function showFavorites() {
     switchTab('favorites');
 }
 
+// ==================== 等待遮罩 ====================
+function showWaiting(show) {
+    const overlay = document.getElementById('waitingOverlay');
+    if (show) {
+        overlay.classList.add('show');
+        waitingSeconds = 0;
+        document.getElementById('waitingTime').textContent = '等待 0 秒';
+        clearInterval(waitingTimer);
+        waitingTimer = setInterval(() => {
+            waitingSeconds++;
+            document.getElementById('waitingTime').textContent = '等待 ' + waitingSeconds + ' 秒';
+            if (waitingSeconds >= 6) {
+                clearInterval(waitingTimer);
+            }
+        }, 1000);
+    } else {
+        overlay.classList.remove('show');
+        clearInterval(waitingTimer);
+    }
+}
+
 // ==================== 播放（点击卡片立即播放） ====================
 function playSong(idx, seekTime) {
     if (idx < 0 || idx >= currentSongs.length) return;
     const song = currentSongs[idx];
     if (!song) return;
-    currentPlayIndex = idx;
     
+    // 显示等待遮罩
+    showWaiting(true);
+    
+    currentPlayIndex = idx;
     const player = document.getElementById('player');
     const audio = document.getElementById('audioPlayer');
     document.getElementById('playerName').textContent = song.song;
@@ -613,17 +697,47 @@ function playSong(idx, seekTime) {
     const el = document.getElementById(`card-${idx}`);
     if (el) el.classList.add('playing');
     
-    // 立即播放 - 使用流式接口
     const playUrl = `/api/stream/${encodeURIComponent(song.mid || '')}`;
     audio.src = playUrl;
     audio.load();
-    audio.play();
-    isPlaying = true;
-    player.style.display = 'block';
-    document.getElementById('playPauseBtn').textContent = '⏸️';
-    setupAudioEvents();
-    savePlayerState();
-    showToast(`▶️ 正在播放: ${song.song}`);
+    
+    // 6秒后自动播放或等待加载完成
+    let loaded = false;
+    audio.oncanplay = function() {
+        if (!loaded) {
+            loaded = true;
+            showWaiting(false);
+            audio.play();
+            isPlaying = true;
+            player.style.display = 'block';
+            document.getElementById('playPauseBtn').textContent = '⏸️';
+            setupAudioEvents();
+            savePlayerState();
+            showToast(`▶️ 正在播放: ${song.song}`);
+        }
+    };
+    
+    // 6秒超时强制播放
+    setTimeout(() => {
+        showWaiting(false);
+        if (!loaded) {
+            audio.play().catch(() => {});
+            isPlaying = true;
+            player.style.display = 'block';
+            document.getElementById('playPauseBtn').textContent = '⏸️';
+            setupAudioEvents();
+            savePlayerState();
+            showToast(`▶️ 正在播放: ${song.song}`);
+        }
+    }, 6000);
+    
+    // 错误处理
+    audio.onerror = function() {
+        showWaiting(false);
+        showToast('❌ 播放失败，请重试');
+        isPlaying = false;
+        document.getElementById('playPauseBtn').textContent = '▶️';
+    };
 }
 
 function togglePlay() {
@@ -731,11 +845,6 @@ function setupAudioEvents() {
     
     audio.onplay = function() { isPlaying = true; document.getElementById('playPauseBtn').textContent = '⏸️'; };
     audio.onpause = function() { isPlaying = false; document.getElementById('playPauseBtn').textContent = '▶️'; };
-    audio.onerror = function() { 
-        showToast('❌ 播放失败，请重试'); 
-        isPlaying = false;
-        document.getElementById('playPauseBtn').textContent = '▶️';
-    };
 }
 
 function formatTime(seconds) {
@@ -829,6 +938,11 @@ def stream_music(mid):
         return response
     return jsonify({'code': 404, 'message': '播放失败'}), 404
 
+@app.route('/api/downloaded')
+def get_downloaded():
+    songs = get_downloaded_songs()
+    return jsonify({'code': 200, 'data': songs})
+
 @app.route('/')
 def index():
     return render_template_string(HTML_TEMPLATE, 
@@ -879,8 +993,8 @@ if __name__ == '__main__':
     print("  🎵 最酷音乐下歌精灵 v2.1")
     print("="*60)
     print(f"  🌐 访问地址: http://localhost:{port}")
-    print("  🎧 点击卡片立即播放 · 边下边播")
-    print("  🔁 列表循环 · 单曲循环 · 随机播放")
-    print("  📱 适配手机端")
+    print("  🎧 点击卡片立即播放 · 6秒等待")
+    print("  📂 已下载歌曲列表")
+    print("  🏠 点击标题返回主页")
     print("="*60)
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
