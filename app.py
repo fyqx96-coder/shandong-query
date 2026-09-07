@@ -26,8 +26,9 @@ else:
     FAVORITES = []
 
 song_url_cache = {}
+API_URL = "https://api.vkeys.cn/v2/music/tencent"
 
-# ==================== 预置推荐歌单（新增 花火） ====================
+# ==================== 预置推荐歌单 ====================
 PRESET_SONGS = [
     {"song": "离别开出花", "singer": "就是南方凯", "mid": "preset_001"},
     {"song": "白鸽乌鸦相爱的戏码", "singer": "潘成", "mid": "preset_002"},
@@ -85,7 +86,7 @@ def search_music(keyword):
                 results.append(song.copy())
         if results:
             return results
-        url = f"https://api.vkeys.cn/v2/music/tencent?word={keyword}"
+        url = f"{API_URL}?word={keyword}"
         response = requests.get(url, timeout=10)
         data = response.json()
         if data['code'] != 200 or not data['data']:
@@ -109,7 +110,7 @@ def get_song_url(mid):
     try:
         if mid.startswith('preset_'):
             return None
-        url = f"https://api.vkeys.cn/v2/music/tencent?mid={mid}&quality=8"
+        url = f"{API_URL}?mid={mid}&quality=8"
         response = requests.get(url, timeout=10)
         data = response.json()
         if data['code'] == 200 and data.get('data'):
@@ -157,28 +158,28 @@ def proxy_stream(url, as_attachment=False, filename=None):
         print(f"流式代理失败: {e}")
         return None
 
-# ==================== HTML 模板 ====================
+# ==================== HTML 模板（整合播放逻辑） ====================
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>🎵 最酷音乐下歌精灵 v2.1</title>
     <style>
-        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',-apple-system,sans-serif}
+        *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;font-family:'Segoe UI',-apple-system,sans-serif}
         :root{--primary:#f7971e;--primary2:#ffd200;--bg1:#1a1a2e;--bg2:#16213e;--bg3:#0f3460;--card:rgba(255,255,255,0.06);--text:#e0e0e0;--text2:#888}
-        body{background:linear-gradient(135deg,var(--bg1),var(--bg2),var(--bg3));min-height:100vh;padding:12px;color:var(--text);padding-bottom:160px}
+        body{background:linear-gradient(135deg,var(--bg1),var(--bg2),var(--bg3));min-height:100vh;padding:10px;color:var(--text);padding-bottom:180px}
         .container{max-width:800px;margin:0 auto}
         
-        .header{text-align:center;padding:18px 0 10px;cursor:pointer}
-        .header h1{font-size:30px;background:linear-gradient(135deg,var(--primary),var(--primary2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline-block;white-space:nowrap}
-        .header .sub{color:var(--text2);font-size:13px;margin-top:4px}
-        .header .version{display:inline-block;background:rgba(255,215,0,0.12);color:#ffd700;padding:2px 12px;border-radius:12px;font-size:11px;margin-top:3px}
-        .header .lyric{color:#ffd700;font-size:12px;margin-top:6px;opacity:0.5;font-style:italic}
+        .header{text-align:center;padding:14px 0 8px;cursor:pointer}
+        .header h1{font-size:26px;background:linear-gradient(135deg,var(--primary),var(--primary2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline-block;white-space:nowrap}
+        .header .sub{color:var(--text2);font-size:12px;margin-top:2px}
+        .header .version{display:inline-block;background:rgba(255,215,0,0.12);color:#ffd700;padding:1px 10px;border-radius:10px;font-size:10px;margin-top:2px}
+        .header .lyric{color:#ffd700;font-size:11px;margin-top:4px;opacity:0.4;font-style:italic}
         
-        .music-icon-pulse{display:inline-block;font-size:30px;margin-right:6px;animation:colorPulse 2s ease-in-out infinite, iconPulse 1.2s ease-in-out infinite;vertical-align:middle}
+        .music-icon-pulse{display:inline-block;font-size:26px;margin-right:4px;animation:colorPulse 2s ease-in-out infinite, iconPulse 1.2s ease-in-out infinite;vertical-align:middle}
         @keyframes colorPulse{
             0%{color:#ff6b6b;text-shadow:0 0 10px rgba(255,107,107,0.5)}
             20%{color:#ffd93d;text-shadow:0 0 15px rgba(255,217,61,0.6)}
@@ -187,104 +188,105 @@ HTML_TEMPLATE = '''
             80%{color:#9b59b6;text-shadow:0 0 15px rgba(155,89,182,0.6)}
             100%{color:#ff6b6b;text-shadow:0 0 10px rgba(255,107,107,0.5)}
         }
-        @keyframes iconPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
-        .song-card.playing .card-icon{animation:colorPulse 1.8s ease-in-out infinite, iconPulse 1s ease-in-out infinite !important;opacity:1 !important}
+        @keyframes iconPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
         
-        .search-box{background:var(--card);border-radius:14px;padding:14px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05)}
-        .search-row{display:flex;gap:8px;flex-wrap:wrap}
-        .search-row input{flex:1;min-width:100px;padding:11px 14px;border:none;border-radius:10px;font-size:14px;background:rgba(255,255,255,0.08);color:#fff;outline:none}
+        .search-box{background:var(--card);border-radius:14px;padding:12px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05)}
+        .search-row{display:flex;gap:6px;flex-wrap:wrap}
+        .search-row input{flex:1;min-width:80px;padding:10px 14px;border:none;border-radius:10px;font-size:14px;background:rgba(255,255,255,0.08);color:#fff;outline:none}
         .search-row input:focus{background:rgba(255,255,255,0.13);box-shadow:0 0 20px rgba(255,215,0,0.06)}
         .search-row input::placeholder{color:#555}
-        .search-row button{padding:11px 14px;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;transition:0.2s}
+        .search-row button{padding:10px 12px;border:none;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:0.2s}
         .search-row button:active{transform:scale(0.95)}
         .btn-search{background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e}
         .btn-singer{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff}
         .btn-fav{background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff}
         .btn-downloaded{background:linear-gradient(135deg,#17a2b8,#0d6efd);color:#fff}
         
-        .quick-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-        .quick-tags button{padding:4px 12px;border:none;border-radius:14px;font-size:11px;cursor:pointer;background:rgba(255,255,255,0.05);color:#aaa;transition:0.2s}
+        .quick-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+        .quick-tags button{padding:4px 10px;border:none;border-radius:12px;font-size:10px;cursor:pointer;background:rgba(255,255,255,0.05);color:#aaa;transition:0.2s}
         .quick-tags button:active{background:rgba(255,215,0,0.15);color:#ffd700;transform:scale(0.95)}
         
-        .tabs{display:flex;gap:4px;margin-bottom:12px;background:var(--card);border-radius:12px;padding:4px;border:1px solid rgba(255,255,255,0.04)}
-        .tabs button{flex:1;padding:9px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:0.2s;background:transparent;color:#666}
+        .tabs{display:flex;gap:3px;margin-bottom:10px;background:var(--card);border-radius:10px;padding:3px;border:1px solid rgba(255,255,255,0.04)}
+        .tabs button{flex:1;padding:8px;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:0.2s;background:transparent;color:#666}
         .tabs button.active{background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e}
         .tabs button:active{transform:scale(0.95)}
         
-        .song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
-        .song-card{background:var(--card);border-radius:14px;padding:16px 14px;text-align:center;border:1px solid rgba(255,255,255,0.04);transition:all 0.25s;cursor:pointer;position:relative;min-height:105px;display:flex;flex-direction:column;justify-content:center;align-items:center}
+        .song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+        .song-card{background:var(--card);border-radius:12px;padding:14px 12px;text-align:center;border:1px solid rgba(255,255,255,0.04);transition:all 0.25s;cursor:pointer;position:relative;min-height:95px;display:flex;flex-direction:column;justify-content:center;align-items:center}
         .song-card:active{transform:scale(0.96);background:rgba(255,255,255,0.08)}
         .song-card.playing{background:rgba(255,215,0,0.12);border-color:rgba(255,215,0,0.25);box-shadow:0 0 30px rgba(255,215,0,0.05)}
-        .song-card .card-icon{font-size:28px;margin-bottom:4px;opacity:0.5;transition:all 0.3s}
-        .song-card .card-name{font-size:14px;font-weight:600;color:#fff;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-        .song-card .card-singer{font-size:12px;color:var(--text2);margin-top:3px;cursor:pointer}
+        .song-card .card-icon{font-size:24px;margin-bottom:3px;opacity:0.5;transition:all 0.3s}
+        .song-card.playing .card-icon{animation:colorPulse 1.8s ease-in-out infinite, iconPulse 1s ease-in-out infinite !important;opacity:1 !important}
+        .song-card .card-name{font-size:13px;font-weight:600;color:#fff;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        .song-card .card-singer{font-size:11px;color:var(--text2);margin-top:2px;cursor:pointer}
         .song-card .card-singer:active{color:#ffd700}
-        .song-card .card-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;justify-content:center}
-        .song-card .card-actions button{padding:4px 12px;border:none;border-radius:8px;font-size:11px;cursor:pointer;transition:0.2s}
+        .song-card .card-actions{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;justify-content:center}
+        .song-card .card-actions button{padding:3px 10px;border:none;border-radius:6px;font-size:10px;cursor:pointer;transition:0.2s}
         .song-card .card-actions button:active{transform:scale(0.9)}
         .card-btn-download{background:#28a745;color:#fff}
-        .card-btn-fav{background:#e74c3c;color:#fff;font-size:14px;padding:4px 8px;border-radius:8px;border:none;cursor:pointer}
+        .card-btn-fav{background:#e74c3c;color:#fff;font-size:13px;padding:3px 7px;border-radius:6px;border:none;cursor:pointer}
         .card-btn-fav.active{background:#555}
-        .card-badge{position:absolute;top:6px;right:6px;font-size:9px;background:rgba(255,215,0,0.15);color:#ffd700;padding:1px 8px;border-radius:8px}
+        .card-badge{position:absolute;top:4px;right:4px;font-size:8px;background:rgba(255,215,0,0.15);color:#ffd700;padding:1px 6px;border-radius:6px}
         .card-badge.local{background:rgba(23,162,184,0.2);color:#17a2b8}
         
+        /* ===== 播放器 ===== */
         .player{position:fixed;bottom:0;left:0;right:0;background:rgba(20,20,40,0.96);backdrop-filter:blur(16px);padding:10px 14px;border-top:1px solid rgba(255,255,255,0.05);z-index:100}
-        .player .top-row{display:flex;align-items:center;gap:10px}
+        .player .top-row{display:flex;align-items:center;gap:8px}
         .player .top-row .info{flex:1;min-width:0}
-        .player .top-row .info .name{font-size:14px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .player .top-row .info .singer{font-size:11px;color:var(--text2)}
-        .player .top-row .btn-play-pause{padding:6px 12px;border:none;border-radius:50%;font-size:18px;cursor:pointer;background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e;width:38px;height:38px;display:flex;align-items:center;justify-content:center}
+        .player .top-row .info .name{font-size:13px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .player .top-row .info .singer{font-size:10px;color:var(--text2)}
+        .player .top-row .btn-play-pause{padding:6px 10px;border:none;border-radius:50%;font-size:16px;cursor:pointer;background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e;width:34px;height:34px;display:flex;align-items:center;justify-content:center}
         .player .top-row .btn-play-pause:active{transform:scale(0.9)}
-        .player .top-row .btn-close{background:transparent;color:#666;border:none;font-size:16px;cursor:pointer;padding:4px 6px}
-        .player .top-row .btn-volume{background:transparent;color:#888;border:none;font-size:18px;cursor:pointer;padding:4px 6px}
-        .player .bottom-row{display:flex;align-items:center;gap:6px;margin-top:4px}
-        .player .bottom-row .btn-mode{background:rgba(255,255,255,0.05);color:#888;border:none;border-radius:5px;padding:3px 8px;font-size:10px;cursor:pointer;white-space:nowrap}
+        .player .top-row .btn-close{background:transparent;color:#666;border:none;font-size:14px;cursor:pointer;padding:3px 5px}
+        .player .top-row .btn-volume{background:transparent;color:#888;border:none;font-size:16px;cursor:pointer;padding:3px 5px}
+        .player .bottom-row{display:flex;align-items:center;gap:5px;margin-top:3px}
+        .player .bottom-row .btn-mode{background:rgba(255,255,255,0.05);color:#888;border:none;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer;white-space:nowrap}
         .player .bottom-row .btn-mode.active{background:rgba(255,215,0,0.12);color:#ffd700}
         .player .progress-bar{flex:1;height:3px;background:rgba(255,255,255,0.06);border-radius:2px;cursor:pointer;position:relative}
         .player .progress-bar .progress-inner{height:100%;background:linear-gradient(90deg,var(--primary),var(--primary2));border-radius:2px;width:0%}
-        .player .time-display{font-size:10px;color:#555;min-width:70px;text-align:right}
+        .player .time-display{font-size:9px;color:#555;min-width:60px;text-align:right}
         .player audio{display:none}
         
-        .volume-popup{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(20,20,40,0.95);backdrop-filter:blur(12px);padding:18px 24px;border-radius:16px;border:1px solid rgba(255,255,255,0.08);z-index:101;display:none;min-width:180px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.5)}
+        .volume-popup{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(20,20,40,0.95);backdrop-filter:blur(12px);padding:14px 20px;border-radius:14px;border:1px solid rgba(255,255,255,0.08);z-index:101;display:none;min-width:150px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.5)}
         .volume-popup.show{display:block;animation:fadeUp 0.25s ease}
         @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
-        .volume-popup .vol-icon{font-size:28px;margin-bottom:8px}
-        .volume-popup .vol-label{font-size:12px;color:#888;margin-bottom:6px}
-        .volume-popup input[type=range]{width:100%;height:4px;-webkit-appearance:none;background:linear-gradient(90deg,var(--primary),var(--primary2));border-radius:2px;outline:none}
-        .volume-popup input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#ffd700;cursor:pointer;box-shadow:0 0 10px rgba(255,215,0,0.3)}
-        .volume-popup .vol-value{font-size:14px;color:#fff;margin-top:6px}
+        .volume-popup .vol-icon{font-size:24px;margin-bottom:4px}
+        .volume-popup .vol-label{font-size:10px;color:#888;margin-bottom:4px}
+        .volume-popup input[type=range]{width:100%;height:3px;-webkit-appearance:none;background:linear-gradient(90deg,var(--primary),var(--primary2));border-radius:2px;outline:none}
+        .volume-popup input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#ffd700;cursor:pointer;box-shadow:0 0 10px rgba(255,215,0,0.3)}
+        .volume-popup .vol-value{font-size:12px;color:#fff;margin-top:4px}
         
-        .loading{display:none;text-align:center;padding:30px}
-        .loading .spinner{width:32px;height:32px;border:3px solid rgba(255,255,255,0.06);border-top:3px solid #ffd700;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto}
+        .loading{display:none;text-align:center;padding:25px}
+        .loading .spinner{width:28px;height:28px;border:3px solid rgba(255,255,255,0.06);border-top:3px solid #ffd700;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto}
         @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
         
-        .empty{text-align:center;padding:40px;color:#555;font-size:14px}
-        .footer-text{text-align:center;padding:14px 0 6px;color:#444;font-size:11px;border-top:1px solid rgba(255,255,255,0.03);margin-top:12px}
+        .empty{text-align:center;padding:30px;color:#555;font-size:13px}
+        .footer-text{text-align:center;padding:10px 0 4px;color:#444;font-size:10px;border-top:1px solid rgba(255,255,255,0.03);margin-top:10px}
         
-        .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#fff;padding:10px 24px;border-radius:10px;font-size:14px;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none}
+        .toast{position:fixed;top:15px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#fff;padding:8px 20px;border-radius:10px;font-size:13px;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none;max-width:90%}
         .toast.show{opacity:1}
         
         .waiting-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;display:none;justify-content:center;align-items:center;flex-direction:column}
         .waiting-overlay.show{display:flex}
-        .waiting-overlay .spinner-big{width:60px;height:60px;border:4px solid rgba(255,255,255,0.1);border-top:4px solid #ffd700;border-radius:50%;animation:spin 1s linear infinite}
-        .waiting-overlay .waiting-text{color:#fff;font-size:18px;margin-top:20px;animation:pulseText 1s ease-in-out infinite}
+        .waiting-overlay .spinner-big{width:50px;height:50px;border:4px solid rgba(255,255,255,0.1);border-top:4px solid #ffd700;border-radius:50%;animation:spin 1s linear infinite}
+        .waiting-overlay .waiting-text{color:#fff;font-size:16px;margin-top:16px;animation:pulseText 1s ease-in-out infinite}
         @keyframes pulseText{0%,100%{opacity:1}50%{opacity:0.5}}
-        .waiting-overlay .waiting-time{color:#ffd700;font-size:14px;margin-top:8px}
+        .waiting-overlay .waiting-time{color:#ffd700;font-size:13px;margin-top:6px}
         
         @media(max-width:480px){
-            .song-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
-            .song-card{padding:12px 10px;min-height:90px}
-            .song-card .card-name{font-size:13px}
-            .search-row input{min-width:70px;font-size:13px;padding:9px 12px}
-            .search-row button{padding:9px 10px;font-size:11px}
-            .header h1{font-size:22px;white-space:nowrap}
-            .player{padding:8px 12px}
-            .player .top-row .btn-play-pause{width:34px;height:34px;font-size:16px}
-            .volume-popup{min-width:140px;padding:14px 18px;bottom:80px}
-            .music-icon-pulse{font-size:24px}
+            .song-grid{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+            .song-card{padding:10px 8px;min-height:80px}
+            .song-card .card-name{font-size:12px}
+            .search-row input{min-width:60px;font-size:12px;padding:8px 10px}
+            .search-row button{padding:8px 10px;font-size:11px}
+            .header h1{font-size:20px;white-space:nowrap}
+            .player{padding:8px 10px}
+            .player .top-row .btn-play-pause{width:30px;height:30px;font-size:14px}
+            .volume-popup{min-width:120px;padding:12px 16px;bottom:70px}
+            .music-icon-pulse{font-size:20px}
         }
         @media(max-width:360px){.song-grid{grid-template-columns:repeat(2,1fr)}}
-        @media(max-width:380px){.header h1{font-size:18px;white-space:nowrap}}
+        @media(max-width:380px){.header h1{font-size:16px;white-space:nowrap}}
     </style>
 </head>
 <body>
@@ -299,8 +301,8 @@ HTML_TEMPLATE = '''
 <div class="volume-popup" id="volumePopup">
     <div class="vol-icon" id="volIcon">🔊</div>
     <div class="vol-label">音量</div>
-    <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.8">
-    <div class="vol-value" id="volValue">80%</div>
+    <input type="range" id="volumeSlider" min="0" max="100" value="70">
+    <div class="vol-value" id="volValue">70%</div>
 </div>
 
 <div class="container">
@@ -332,7 +334,7 @@ HTML_TEMPLATE = '''
         <button onclick="switchTab('downloaded')">📂 已下载</button>
     </div>
     
-    <div id="loading" class="loading"><div class="spinner"></div><p style="color:#888;margin-top:6px;font-size:13px">加载中...</p></div>
+    <div id="loading" class="loading"><div class="spinner"></div><p style="color:#888;margin-top:4px;font-size:12px">加载中...</p></div>
     
     <div id="songGrid" class="song-grid"></div>
     
@@ -371,13 +373,14 @@ let currentSongs = [];
 let currentTab = 'recommend';
 let favorites = [];
 let currentPlayIndex = -1;
-let playMode = 'all';
+let playMode = 'order'; // order, single, random
 let isPlaying = false;
 let shuffledIndices = [];
 let shuffleIndex = 0;
 let volumeTimeout = null;
 let waitingTimer = null;
 let waitingSeconds = 0;
+let audioElement = null;
 
 // ==================== Toast ====================
 function showToast(msg, duration) {
@@ -407,24 +410,28 @@ function toggleVolume(e) {
     }
 }
 
-document.addEventListener('DOMContentLoaded', function() {
+function setupVolumeControl() {
     const slider = document.getElementById('volumeSlider');
     const valDisplay = document.getElementById('volValue');
     const icon = document.getElementById('volIcon');
-    const audio = document.getElementById('audioPlayer');
+    if (!audioElement) return;
     
     slider.addEventListener('input', function() {
-        const val = parseFloat(this.value);
-        const pct = Math.round(val * 100);
-        valDisplay.textContent = pct + '%';
-        audio.volume = val;
-        icon.textContent = val > 0.5 ? '🔊' : val > 0.1 ? '🔉' : '🔇';
+        const val = parseInt(this.value);
+        valDisplay.textContent = val + '%';
+        audioElement.volume = val / 100;
+        icon.textContent = val > 70 ? '🔊' : val > 30 ? '🔉' : '🔇';
         clearTimeout(volumeTimeout);
         volumeTimeout = setTimeout(() => {
             document.getElementById('volumePopup').classList.remove('show');
         }, 4000);
     });
-});
+    
+    // 初始化音量
+    audioElement.volume = 0.7;
+    slider.value = 70;
+    valDisplay.textContent = '70%';
+}
 
 document.addEventListener('click', function(e) {
     const popup = document.getElementById('volumePopup');
@@ -440,7 +447,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadRecommend();
     loadQuickTags();
     loadFavoritesFromStorage();
-    loadPlayerState();
+    // 不自动恢复播放，用户手动点击
 });
 
 function loadQuickTags() {
@@ -461,34 +468,6 @@ function isFavorite(song) {
     return favorites.some(s => s.song === song.song && s.singer === song.singer);
 }
 
-function savePlayerState() {
-    const audio = document.getElementById('audioPlayer');
-    try {
-        localStorage.setItem('player_state', JSON.stringify({
-            currentTime: audio.currentTime || 0,
-            playing: isPlaying,
-            song: currentPlayIndex >= 0 && currentPlayIndex < currentSongs.length ? currentSongs[currentPlayIndex] : null,
-            index: currentPlayIndex,
-            mode: playMode
-        }));
-    } catch(e) {}
-}
-
-function loadPlayerState() {
-    try {
-        const state = JSON.parse(localStorage.getItem('player_state'));
-        if (state && state.song) {
-            const idx = currentSongs.findIndex(s => s.song === state.song.song && s.singer === state.song.singer);
-            if (idx >= 0) {
-                currentPlayIndex = idx;
-                playMode = state.mode || 'all';
-                updateModeButton();
-                playSong(idx, state.currentTime || 0);
-            }
-        }
-    } catch(e) {}
-}
-
 // ==================== 渲染卡片 ====================
 function renderSongs(songs, showFavoriteBtn=true, isLocal=false) {
     const container = document.getElementById('songGrid');
@@ -502,7 +481,7 @@ function renderSongs(songs, showFavoriteBtn=true, isLocal=false) {
     
     container.innerHTML = songs.map((song, idx) => {
         const fav = isFavorite(song);
-        const isCurrent = (idx === currentPlayIndex);
+        const isCurrent = (idx === currentPlayIndex && audioElement && audioElement.src);
         const localBadge = isLocal ? '<div class="card-badge local">📂 本地</div>' : '';
         const badge = isCurrent ? '<div class="card-badge">▶ 播放中</div>' : localBadge;
         return `
@@ -599,7 +578,7 @@ function toggleFavorite(idx) {
 
 function showFavorites() {
     if (favorites.length === 0) {
-        document.getElementById('songGrid').innerHTML = '<div class="empty">💔 还没有收藏歌曲<br><span style="font-size:12px;color:#555">点击 🤍 收藏</span></div>';
+        document.getElementById('songGrid').innerHTML = '<div class="empty">💔 还没有收藏歌曲<br><span style="font-size:11px;color:#555">点击 🤍 收藏</span></div>';
         switchTab('favorites');
         return;
     }
@@ -628,12 +607,26 @@ function showWaiting(show) {
     }
 }
 
-// ==================== 播放（点击卡片立即播放） ====================
+// ==================== 播放核心（使用 HTML5 Audio） ====================
 function playSong(idx, seekTime) {
     if (idx < 0 || idx >= currentSongs.length) return;
     const song = currentSongs[idx];
     if (!song) return;
     
+    showWaiting(true);
+    currentPlayIndex = idx;
+    
+    // 更新播放器UI
+    const player = document.getElementById('player');
+    document.getElementById('playerName').textContent = song.song;
+    document.getElementById('playerSinger').textContent = song.singer;
+    
+    // 更新卡片高亮
+    document.querySelectorAll('.song-card').forEach(el => el.classList.remove('playing'));
+    const el = document.getElementById(`card-${idx}`);
+    if (el) el.classList.add('playing');
+    
+    // 获取播放链接
     let playUrl = '';
     if (song.mid && song.mid.startsWith('local_')) {
         playUrl = `/api/local/${encodeURIComponent(song.file)}`;
@@ -641,50 +634,46 @@ function playSong(idx, seekTime) {
         playUrl = `/api/stream/${encodeURIComponent(song.mid || '')}`;
     }
     
-    showWaiting(true);
+    // 创建或复用 Audio 对象
+    if (!audioElement) {
+        audioElement = new Audio();
+        setupAudioEvents();
+        setupVolumeControl();
+    }
     
-    currentPlayIndex = idx;
-    const player = document.getElementById('player');
-    const audio = document.getElementById('audioPlayer');
-    document.getElementById('playerName').textContent = song.song;
-    document.getElementById('playerSinger').textContent = song.singer;
-    
-    document.querySelectorAll('.song-card').forEach(el => el.classList.remove('playing'));
-    const el = document.getElementById(`card-${idx}`);
-    if (el) el.classList.add('playing');
-    
-    audio.src = playUrl;
-    audio.load();
+    audioElement.src = playUrl;
+    audioElement.load();
     
     let loaded = false;
-    audio.oncanplay = function() {
+    audioElement.oncanplay = function() {
         if (!loaded) {
             loaded = true;
             showWaiting(false);
-            audio.play();
-            isPlaying = true;
-            player.style.display = 'block';
-            document.getElementById('playPauseBtn').textContent = '⏸️';
-            setupAudioEvents();
-            savePlayerState();
-            showToast(`▶️ 正在播放: ${song.song}`);
+            audioElement.play().then(() => {
+                isPlaying = true;
+                player.style.display = 'block';
+                document.getElementById('playPauseBtn').textContent = '⏸️';
+                showToast(`▶️ 正在播放: ${song.song}`);
+            }).catch(() => {
+                showWaiting(false);
+                showToast('点击播放按钮开始播放');
+            });
         }
     };
     
+    // 6秒超时
     setTimeout(() => {
         showWaiting(false);
         if (!loaded) {
-            audio.play().catch(() => {});
+            audioElement.play().catch(() => {});
             isPlaying = true;
             player.style.display = 'block';
             document.getElementById('playPauseBtn').textContent = '⏸️';
-            setupAudioEvents();
-            savePlayerState();
             showToast(`▶️ 正在播放: ${song.song}`);
         }
     }, 6000);
     
-    audio.onerror = function() {
+    audioElement.onerror = function() {
         showWaiting(false);
         showToast('❌ 播放失败，请下载后播放');
         isPlaying = false;
@@ -693,110 +682,111 @@ function playSong(idx, seekTime) {
 }
 
 function togglePlay() {
-    const audio = document.getElementById('audioPlayer');
-    if (audio.paused) {
-        audio.play();
+    if (!audioElement) return;
+    if (audioElement.paused) {
+        audioElement.play();
         isPlaying = true;
         document.getElementById('playPauseBtn').textContent = '⏸️';
     } else {
-        audio.pause();
+        audioElement.pause();
         isPlaying = false;
         document.getElementById('playPauseBtn').textContent = '▶️';
     }
-    savePlayerState();
 }
 
 function closePlayer() {
     document.getElementById('player').style.display = 'none';
-    const audio = document.getElementById('audioPlayer');
-    audio.pause();
-    audio.src = '';
+    if (audioElement) {
+        audioElement.pause();
+        audioElement.src = '';
+    }
     isPlaying = false;
-    savePlayerState();
 }
 
 function seekTo(e) {
     const bar = document.getElementById('progressBarPlayer');
     const rect = bar.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const audio = document.getElementById('audioPlayer');
-    if (audio.duration) {
-        audio.currentTime = pct * audio.duration;
+    if (audioElement && audioElement.duration) {
+        audioElement.currentTime = pct * audioElement.duration;
     }
 }
 
-// ===== 播放模式 =====
+// ===== 播放模式切换 =====
 function toggleMode() {
-    const modes = ['all', 'single', 'loop', 'random'];
-    const labels = ['🔁 列表', '🔂 单曲', '🔁 循环', '🎲 随机'];
+    const modes = ['order', 'single', 'random'];
+    const labels = ['🔁 列表', '🔂 单曲', '🎲 随机'];
     const idx = modes.indexOf(playMode);
-    playMode = modes[(idx + 1) % 4];
-    updateModeButton();
-    savePlayerState();
-    if (playMode === 'random') generateShuffleList();
-    showToast('播放模式: ' + labels[modes.indexOf(playMode)]);
-}
-
-function updateModeButton() {
+    playMode = modes[(idx + 1) % 3];
     const btn = document.getElementById('modeBtn');
-    const labels = {'all':'🔁 列表', 'single':'🔂 单曲', 'loop':'🔁 循环', 'random':'🎲 随机'};
-    btn.textContent = labels[playMode] || '🔁 列表';
+    const labelsMap = {'order':'🔁 列表', 'single':'🔂 单曲', 'random':'🎲 随机'};
+    btn.textContent = labelsMap[playMode];
+    showToast('播放模式: ' + labelsMap[playMode]);
 }
 
-function generateShuffleList() {
-    shuffledIndices = Array.from({length: currentSongs.length}, (_, i) => i);
-    for (let i = shuffledIndices.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffledIndices[i], shuffledIndices[j]] = [shuffledIndices[j], shuffledIndices[i]];
-    }
-    shuffleIndex = 0;
-    if (currentPlayIndex >= 0) {
-        const pos = shuffledIndices.indexOf(currentPlayIndex);
-        if (pos >= 0) shuffleIndex = pos;
-    }
-}
-
-function getNextSongIndex() {
+function getNextIndex() {
+    if (!currentSongs.length) return -1;
+    if (playMode === 'single') return currentPlayIndex;
     if (playMode === 'random') {
-        if (shuffledIndices.length === 0) generateShuffleList();
-        const idx = shuffledIndices[shuffleIndex];
-        shuffleIndex = (shuffleIndex + 1) % shuffledIndices.length;
-        return idx;
+        let newIndex;
+        do { newIndex = Math.floor(Math.random() * currentSongs.length); } 
+        while (currentSongs.length > 1 && newIndex === currentPlayIndex);
+        return newIndex;
     }
-    return (currentPlayIndex + 1) % currentSongs.length;
+    let next = currentPlayIndex + 1;
+    if (next >= currentSongs.length) next = 0;
+    return next;
+}
+
+function skipToNext() {
+    if (!currentSongs.length) return;
+    let nextIndex = getNextIndex();
+    if (nextIndex === currentPlayIndex && playMode !== 'single') {
+        if (currentSongs.length === 1) nextIndex = 0;
+    }
+    if (nextIndex !== currentPlayIndex || playMode === 'single') {
+        playSong(nextIndex);
+    } else {
+        showToast("没有更多歌曲");
+    }
 }
 
 function setupAudioEvents() {
-    const audio = document.getElementById('audioPlayer');
-    const progress = document.getElementById('progressInner');
-    const currentTimeEl = document.getElementById('currentTime');
-    const totalTimeEl = document.getElementById('totalTime');
+    if (!audioElement) return;
     
-    audio.ontimeupdate = function() {
-        if (audio.duration) {
-            progress.style.width = (audio.currentTime / audio.duration * 100) + '%';
-            currentTimeEl.textContent = formatTime(audio.currentTime);
-            totalTimeEl.textContent = formatTime(audio.duration);
+    audioElement.ontimeupdate = function() {
+        if (audioElement.duration) {
+            const pct = (audioElement.currentTime / audioElement.duration) * 100;
+            document.getElementById('progressInner').style.width = pct + '%';
+            document.getElementById('currentTime').textContent = formatTime(audioElement.currentTime);
+            document.getElementById('totalTime').textContent = formatTime(audioElement.duration);
         }
-        savePlayerState();
     };
     
-    audio.onended = function() {
+    audioElement.onended = function() {
         if (playMode === 'single') {
-            audio.currentTime = 0;
-            audio.play();
-        } else if (playMode === 'loop' || playMode === 'all' || playMode === 'random') {
-            const nextIdx = getNextSongIndex();
-            playSong(nextIdx);
+            audioElement.currentTime = 0;
+            audioElement.play();
         } else {
-            isPlaying = false;
-            document.getElementById('playPauseBtn').textContent = '▶️';
-            savePlayerState();
+            const nextIdx = getNextIndex();
+            if (nextIdx !== currentPlayIndex) {
+                playSong(nextIdx);
+            } else {
+                isPlaying = false;
+                document.getElementById('playPauseBtn').textContent = '▶️';
+            }
         }
     };
     
-    audio.onplay = function() { isPlaying = true; document.getElementById('playPauseBtn').textContent = '⏸️'; };
-    audio.onpause = function() { isPlaying = false; document.getElementById('playPauseBtn').textContent = '▶️'; };
+    audioElement.onplay = function() {
+        isPlaying = true;
+        document.getElementById('playPauseBtn').textContent = '⏸️';
+    };
+    
+    audioElement.onpause = function() {
+        isPlaying = false;
+        document.getElementById('playPauseBtn').textContent = '▶️';
+    };
 }
 
 function formatTime(seconds) {
@@ -812,23 +802,15 @@ function downloadSong(idx) {
     if (!song) return;
     
     let downloadUrl = '';
-    let fileName = '';
-    
     if (song.mid && song.mid.startsWith('local_')) {
-        // 本地文件直接下载
         downloadUrl = `/api/local/${encodeURIComponent(song.file)}?download=true`;
-        fileName = song.file;
     } else {
-        // 在线歌曲直接下载
         downloadUrl = `/api/download/direct/${encodeURIComponent(song.mid || '')}?name=${encodeURIComponent(song.song + ' - ' + song.singer)}`;
-        fileName = song.song + ' - ' + song.singer + '.mp3';
     }
     
-    // 打开下载链接
     window.open(downloadUrl, '_blank');
     showToast(`⬇️ 正在下载: ${song.song}`, 3000);
     
-    // 模拟下载完成提醒（实际下载完成后浏览器会自动提示）
     setTimeout(() => {
         showToast(`✅ 下载完成: ${song.song}`, 4000);
     }, 5000);
