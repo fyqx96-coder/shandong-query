@@ -25,8 +25,8 @@ if os.path.exists(favorites_file):
 else:
     FAVORITES = []
 
-song_url_cache = {}
 download_tasks = {}
+song_url_cache = {}
 
 # ==================== 预置推荐歌单 ====================
 PRESET_SONGS = [
@@ -86,77 +86,89 @@ def search_music(keyword):
                 results.append(song.copy())
         if results:
             return results
-        url = f"https://api.vkeys.cn/v2/music/tencent?word={keyword}"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        if data['code'] != 200 or not data['data']:
-            return []
-        for song in data['data']:
-            results.append({
-                'song': song['song'],
-                'singer': song['singer'],
-                'album': song.get('album', '未知'),
-                'mid': song.get('mid', ''),
-                'time': song.get('time', '未知')
-            })
-        return results
+        # 使用多个API源
+        apis = [
+            f"https://api.vkeys.cn/v2/music/tencent?word={keyword}",
+            f"https://api.itooi.cn/music/tencent/search?key=579621905&s={keyword}",
+            f"https://api.uomg.com/api/rand.music?sort={keyword}&format=json"
+        ]
+        for api in apis:
+            try:
+                response = requests.get(api, timeout=10)
+                data = response.json()
+                if data.get('code') == 200 and data.get('data'):
+                    songs = data['data']
+                    if isinstance(songs, list):
+                        for song in songs:
+                            results.append({
+                                'song': song.get('song') or song.get('name') or '未知',
+                                'singer': song.get('singer') or song.get('artist') or '未知',
+                                'mid': str(song.get('mid') or song.get('id') or f"mid_{int(time.time())}"),
+                                'album': song.get('album', '未知'),
+                                'time': song.get('time', '未知')
+                            })
+                        if results:
+                            return results
+            except:
+                continue
+        return []
     except Exception as e:
         print(f"搜索失败: {e}")
         return []
 
 def get_song_url(mid):
+    """获取歌曲播放链接 - 多源备用"""
     if mid in song_url_cache:
         return song_url_cache[mid]
+    
+    # 如果是预设歌曲，尝试通过网易云搜索获取
+    if mid.startswith('preset_'):
+        # 从预置歌单找对应的歌曲名和歌手
+        for song in PRESET_SONGS:
+            if song.get('mid') == mid:
+                try:
+                    # 使用网易云搜索
+                    search_url = f"https://music.163.com/api/search/get/web?s={quote(song['song'] + ' ' + song['singer'])}&type=1&limit=1"
+                    resp = requests.get(search_url, timeout=10)
+                    data = resp.json()
+                    if data.get('result', {}).get('songs'):
+                        song_id = data['result']['songs'][0]['id']
+                        play_url = f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
+                        song_url_cache[mid] = play_url
+                        return play_url
+                except Exception as e:
+                    print(f"网易云搜索失败: {e}")
+                break
+        return None
+    
+    # 非预设歌曲，尝试多个API
+    apis = [
+        f"https://api.vkeys.cn/v2/music/tencent?mid={mid}&quality=8",
+        f"https://api.itooi.cn/music/tencent/url?key=579621905&id={mid}",
+    ]
+    for api in apis:
+        try:
+            response = requests.get(api, timeout=10)
+            data = response.json()
+            if data.get('code') == 200 and data.get('data'):
+                song_url = data['data'].get('url')
+                if song_url and song_url.startswith('http'):
+                    song_url_cache[mid] = song_url
+                    return song_url
+        except:
+            continue
+    
+    # 最后尝试网易云搜索
     try:
-        if mid.startswith('preset_'):
-            return None
-        url = f"https://api.vkeys.cn/v2/music/tencent?mid={mid}&quality=8"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        if data['code'] == 200 and data.get('data'):
-            song_url = data['data'].get('url')
-            if song_url:
-                song_url_cache[mid] = song_url
-                return song_url
-        return None
-    except Exception as e:
-        print(f"获取下载链接失败: {e}")
-        return None
-
-def get_downloaded_songs():
-    songs = []
-    if os.path.exists(DOWNLOAD_DIR):
-        for f in os.listdir(DOWNLOAD_DIR):
-            if f.endswith('.mp3'):
-                name = f.replace('.mp3', '')
-                parts = name.split(' - ', 1)
-                if len(parts) == 2:
-                    songs.append({'song': parts[1], 'singer': parts[0], 'file': f, 'mid': 'local_' + f})
-                else:
-                    songs.append({'song': name, 'singer': '未知', 'file': f, 'mid': 'local_' + f})
-    return songs
-
-def proxy_stream(url, as_attachment=False, filename=None):
-    try:
-        response = requests.get(url, stream=True, timeout=30)
-        response.raise_for_status()
-        headers = {
-            'Content-Type': 'audio/mpeg',
-            'Content-Length': response.headers.get('content-length', ''),
-            'Accept-Ranges': 'bytes',
-            'Cache-Control': 'public, max-age=86400',
-            'Access-Control-Allow-Origin': '*',
-        }
-        if as_attachment and filename:
-            headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
-        def generate():
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    yield chunk
-        return Response(stream_with_context(generate()), status=response.status_code, headers=headers)
-    except Exception as e:
-        print(f"流式代理失败: {e}")
-        return None
+        # 通过mid搜索（如果mid是数字）
+        if mid.isdigit():
+            play_url = f"https://music.163.com/song/media/outer/url?id={mid}.mp3"
+            song_url_cache[mid] = play_url
+            return play_url
+    except:
+        pass
+    
+    return None
 
 def download_song_task(task_id, song):
     try:
@@ -189,28 +201,65 @@ def download_song_task(task_id, song):
     except Exception as e:
         download_tasks[task_id] = {'status': 'failed', 'error': str(e)}
 
-# ==================== HTML 模板（整合播放逻辑） ====================
+def proxy_stream(url):
+    try:
+        response = requests.get(url, stream=True, timeout=30)
+        response.raise_for_status()
+        def generate():
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+        return Response(
+            stream_with_context(generate()),
+            status=response.status_code,
+            headers={
+                'Content-Type': 'audio/mpeg',
+                'Content-Length': response.headers.get('content-length', ''),
+                'Accept-Ranges': 'bytes',
+                'Cache-Control': 'public, max-age=86400',
+                'Access-Control-Allow-Origin': '*',
+            }
+        )
+    except Exception as e:
+        print(f"流式播放失败: {e}")
+        return None
+
+# ==================== 获取已下载歌曲列表 ====================
+def get_downloaded_songs():
+    songs = []
+    if os.path.exists(DOWNLOAD_DIR):
+        for f in os.listdir(DOWNLOAD_DIR):
+            if f.endswith('.mp3'):
+                name = f.replace('.mp3', '')
+                parts = name.split(' - ', 1)
+                if len(parts) == 2:
+                    songs.append({'song': parts[1], 'singer': parts[0], 'file': f})
+                else:
+                    songs.append({'song': name, 'singer': '未知', 'file': f})
+    return songs
+
+# ==================== HTML 模板 ====================
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>🎵 最酷音乐下歌精灵 v2.1</title>
     <style>
-        *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;font-family:'Segoe UI',-apple-system,sans-serif}
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',-apple-system,sans-serif}
         :root{--primary:#f7971e;--primary2:#ffd200;--bg1:#1a1a2e;--bg2:#16213e;--bg3:#0f3460;--card:rgba(255,255,255,0.06);--text:#e0e0e0;--text2:#888}
-        body{background:linear-gradient(135deg,var(--bg1),var(--bg2),var(--bg3));min-height:100vh;padding:10px;color:var(--text);padding-bottom:180px}
+        body{background:linear-gradient(135deg,var(--bg1),var(--bg2),var(--bg3));min-height:100vh;padding:12px;color:var(--text);padding-bottom:160px}
         .container{max-width:800px;margin:0 auto}
         
-        .header{text-align:center;padding:14px 0 8px;cursor:pointer}
-        .header h1{font-size:26px;background:linear-gradient(135deg,var(--primary),var(--primary2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline-block;white-space:nowrap}
-        .header .sub{color:var(--text2);font-size:12px;margin-top:2px}
-        .header .version{display:inline-block;background:rgba(255,215,0,0.12);color:#ffd700;padding:1px 10px;border-radius:10px;font-size:10px;margin-top:2px}
-        .header .lyric{color:#ffd700;font-size:11px;margin-top:4px;opacity:0.4;font-style:italic}
+        .header{text-align:center;padding:18px 0 10px;cursor:pointer}
+        .header h1{font-size:30px;background:linear-gradient(135deg,var(--primary),var(--primary2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline-block;white-space:nowrap}
+        .header .sub{color:var(--text2);font-size:13px;margin-top:4px}
+        .header .version{display:inline-block;background:rgba(255,215,0,0.12);color:#ffd700;padding:2px 12px;border-radius:12px;font-size:11px;margin-top:3px}
+        .header .lyric{color:#ffd700;font-size:12px;margin-top:6px;opacity:0.5;font-style:italic}
         
-        .music-icon-pulse{display:inline-block;font-size:26px;margin-right:4px;animation:colorPulse 2s ease-in-out infinite, iconPulse 1.2s ease-in-out infinite;vertical-align:middle}
+        .music-icon-pulse{display:inline-block;font-size:30px;margin-right:6px;animation:colorPulse 2s ease-in-out infinite, iconPulse 1.2s ease-in-out infinite;vertical-align:middle}
         @keyframes colorPulse{
             0%{color:#ff6b6b;text-shadow:0 0 10px rgba(255,107,107,0.5)}
             20%{color:#ffd93d;text-shadow:0 0 15px rgba(255,217,61,0.6)}
@@ -219,82 +268,127 @@ HTML_TEMPLATE = '''
             80%{color:#9b59b6;text-shadow:0 0 15px rgba(155,89,182,0.6)}
             100%{color:#ff6b6b;text-shadow:0 0 10px rgba(255,107,107,0.5)}
         }
-        @keyframes iconPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+        @keyframes iconPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
+        .song-card.playing .card-icon{animation:colorPulse 1.8s ease-in-out infinite, iconPulse 1s ease-in-out infinite !important;opacity:1 !important}
         
-        .search-box{background:var(--card);border-radius:14px;padding:12px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05)}
-        .search-row{display:flex;gap:6px;flex-wrap:wrap}
-        .search-row input{flex:1;min-width:80px;padding:10px 14px;border:none;border-radius:10px;font-size:14px;background:rgba(255,255,255,0.08);color:#fff;outline:none}
+        .search-box{background:var(--card);border-radius:14px;padding:14px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05)}
+        .search-row{display:flex;gap:8px;flex-wrap:wrap}
+        .search-row input{flex:1;min-width:100px;padding:11px 14px;border:none;border-radius:10px;font-size:14px;background:rgba(255,255,255,0.08);color:#fff;outline:none}
         .search-row input:focus{background:rgba(255,255,255,0.13)}
         .search-row input::placeholder{color:#555}
-        .search-row button{padding:10px 12px;border:none;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:0.2s}
+        .search-row button{padding:11px 14px;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;transition:0.2s}
         .search-row button:active{transform:scale(0.95)}
         .btn-search{background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e}
         .btn-singer{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff}
         .btn-fav{background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff}
         .btn-downloaded{background:linear-gradient(135deg,#17a2b8,#0d6efd);color:#fff}
         
-        .quick-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
-        .quick-tags button{padding:4px 10px;border:none;border-radius:12px;font-size:10px;cursor:pointer;background:rgba(255,255,255,0.05);color:#aaa;transition:0.2s}
+        .quick-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+        .quick-tags button{padding:4px 12px;border:none;border-radius:14px;font-size:11px;cursor:pointer;background:rgba(255,255,255,0.05);color:#aaa;transition:0.2s}
         .quick-tags button:active{background:rgba(255,215,0,0.15);color:#ffd700}
         
-        .tabs{display:flex;gap:3px;margin-bottom:10px;background:var(--card);border-radius:10px;padding:3px;border:1px solid rgba(255,255,255,0.04)}
-        .tabs button{flex:1;padding:8px;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:0.2s;background:transparent;color:#666}
+        .tabs{display:flex;gap:4px;margin-bottom:12px;background:var(--card);border-radius:12px;padding:4px;border:1px solid rgba(255,255,255,0.04)}
+        .tabs button{flex:1;padding:9px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:0.2s;background:transparent;color:#666}
         .tabs button.active{background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e}
         .tabs button:active{transform:scale(0.95)}
         
-        .song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
-        .song-card{background:var(--card);border-radius:12px;padding:14px 12px;text-align:center;border:1px solid rgba(255,255,255,0.04);transition:all 0.25s;cursor:pointer;position:relative;min-height:95px;display:flex;flex-direction:column;justify-content:center;align-items:center}
+        .song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+        .song-card{background:var(--card);border-radius:14px;padding:16px 14px;text-align:center;border:1px solid rgba(255,255,255,0.04);transition:all 0.25s;cursor:pointer;position:relative;min-height:105px;display:flex;flex-direction:column;justify-content:center;align-items:center}
         .song-card:active{transform:scale(0.96);background:rgba(255,255,255,0.08)}
         .song-card.playing{background:rgba(255,215,0,0.12);border-color:rgba(255,215,0,0.25)}
-        .song-card .card-icon{font-size:24px;margin-bottom:3px;opacity:0.5}
+        .song-card .card-icon{font-size:28px;margin-bottom:4px;opacity:0.5}
         .song-card.playing .card-icon{animation:pulse 1.5s ease-in-out infinite;opacity:1}
         @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
-        .song-card .card-name{font-size:13px;font-weight:600;color:#fff;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-        .song-card .card-singer{font-size:11px;color:var(--text2);margin-top:2px}
-        .song-card .card-actions{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;justify-content:center}
-        .song-card .card-actions button{padding:3px 10px;border:none;border-radius:6px;font-size:10px;cursor:pointer;transition:0.2s}
+        .song-card .card-name{font-size:14px;font-weight:600;color:#fff;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        .song-card .card-singer{font-size:12px;color:var(--text2);margin-top:3px;cursor:pointer}
+        .song-card .card-singer:active{color:#ffd700}
+        .song-card .card-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+        .song-card .card-actions button{padding:4px 12px;border:none;border-radius:8px;font-size:11px;cursor:pointer;transition:0.2s}
         .song-card .card-actions button:active{transform:scale(0.9)}
         .card-btn-download{background:#28a745;color:#fff}
-        .card-btn-fav{background:#e74c3c;color:#fff;font-size:13px;padding:3px 7px;border-radius:6px;border:none;cursor:pointer}
+        .card-btn-fav{background:#e74c3c;color:#fff;font-size:14px;padding:4px 8px;border-radius:8px;border:none;cursor:pointer}
         .card-btn-fav.active{background:#555}
-        .card-badge{position:absolute;top:4px;right:4px;font-size:8px;background:rgba(255,215,0,0.15);color:#ffd700;padding:1px 6px;border-radius:6px}
+        .card-badge{position:absolute;top:6px;right:6px;font-size:9px;background:rgba(255,215,0,0.15);color:#ffd700;padding:1px 8px;border-radius:8px}
         .card-badge.local{background:rgba(23,162,184,0.2);color:#17a2b8}
         
+        .download-status{background:var(--card);border-radius:12px;padding:14px;margin-top:12px;border:1px solid rgba(255,215,0,0.08);display:none}
+        .download-status .bar{width:100%;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;margin-top:6px}
+        .download-status .bar-inner{height:100%;background:linear-gradient(90deg,var(--primary),var(--primary2));transition:width 0.3s;border-radius:2px}
+        .download-status .info{display:flex;justify-content:space-between;font-size:12px;color:var(--text2)}
+        
         .player{position:fixed;bottom:0;left:0;right:0;background:rgba(20,20,40,0.96);backdrop-filter:blur(16px);padding:10px 14px;border-top:1px solid rgba(255,255,255,0.05);z-index:100}
-        .player .top-row{display:flex;align-items:center;gap:8px}
+        .player .top-row{display:flex;align-items:center;gap:10px}
         .player .top-row .info{flex:1;min-width:0}
-        .player .top-row .info .name{font-size:13px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .player .top-row .info .singer{font-size:10px;color:var(--text2)}
-        .player .top-row .btn-play-pause{padding:6px 10px;border:none;border-radius:50%;font-size:16px;cursor:pointer;background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e;width:34px;height:34px;display:flex;align-items:center;justify-content:center}
+        .player .top-row .info .name{font-size:14px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .player .top-row .info .singer{font-size:11px;color:var(--text2)}
+        .player .top-row .btn-play-pause{padding:6px 12px;border:none;border-radius:50%;font-size:18px;cursor:pointer;background:linear-gradient(135deg,var(--primary),var(--primary2));color:#1a1a2e;width:38px;height:38px;display:flex;align-items:center;justify-content:center}
         .player .top-row .btn-play-pause:active{transform:scale(0.9)}
-        .player .top-row .btn-close{background:transparent;color:#666;border:none;font-size:14px;cursor:pointer;padding:3px 5px}
-        .player .bottom-row{display:flex;align-items:center;gap:5px;margin-top:3px}
-        .player .bottom-row .btn-mode{background:rgba(255,255,255,0.05);color:#888;border:none;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer}
+        .player .top-row .btn-close{background:transparent;color:#666;border:none;font-size:16px;cursor:pointer;padding:4px 6px}
+        .player .top-row .btn-volume{background:transparent;color:#888;border:none;font-size:18px;cursor:pointer;padding:4px 6px}
+        .player .bottom-row{display:flex;align-items:center;gap:6px;margin-top:4px}
+        .player .bottom-row .btn-mode{background:rgba(255,255,255,0.05);color:#888;border:none;border-radius:5px;padding:3px 8px;font-size:10px;cursor:pointer;white-space:nowrap}
         .player .bottom-row .btn-mode.active{background:rgba(255,215,0,0.12);color:#ffd700}
         .player .progress-bar{flex:1;height:3px;background:rgba(255,255,255,0.06);border-radius:2px;cursor:pointer;position:relative}
         .player .progress-bar .progress-inner{height:100%;background:linear-gradient(90deg,var(--primary),var(--primary2));border-radius:2px;width:0%}
-        .player .time-display{font-size:9px;color:#555;min-width:60px;text-align:right}
+        .player .time-display{font-size:10px;color:#555;min-width:70px;text-align:right}
         .player audio{display:none}
         
-        .toast{position:fixed;top:15px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#fff;padding:8px 20px;border-radius:10px;font-size:13px;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none;max-width:90%}
+        .volume-popup{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(20,20,40,0.95);backdrop-filter:blur(12px);padding:18px 24px;border-radius:16px;border:1px solid rgba(255,255,255,0.08);z-index:101;display:none;min-width:180px;text-align:center}
+        .volume-popup.show{display:block;animation:fadeUp 0.25s ease}
+        @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+        .volume-popup .vol-icon{font-size:28px;margin-bottom:8px}
+        .volume-popup .vol-label{font-size:12px;color:#888;margin-bottom:6px}
+        .volume-popup input[type=range]{width:100%;height:4px;-webkit-appearance:none;background:linear-gradient(90deg,var(--primary),var(--primary2));border-radius:2px;outline:none}
+        .volume-popup input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#ffd700;cursor:pointer}
+        .volume-popup .vol-value{font-size:14px;color:#fff;margin-top:6px}
+        
+        .loading{display:none;text-align:center;padding:30px}
+        .loading .spinner{width:32px;height:32px;border:3px solid rgba(255,255,255,0.06);border-top:3px solid #ffd700;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto}
+        @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+        
+        .empty{text-align:center;padding:40px;color:#555;font-size:14px}
+        .footer-text{text-align:center;padding:14px 0 6px;color:#444;font-size:11px;border-top:1px solid rgba(255,255,255,0.03);margin-top:12px}
+        
+        .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#fff;padding:10px 24px;border-radius:10px;font-size:14px;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none}
         .toast.show{opacity:1}
         
-        .empty{text-align:center;padding:30px;color:#555;font-size:13px}
+        .waiting-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;display:none;justify-content:center;align-items:center;flex-direction:column}
+        .waiting-overlay.show{display:flex}
+        .waiting-overlay .spinner-big{width:60px;height:60px;border:4px solid rgba(255,255,255,0.1);border-top:4px solid #ffd700;border-radius:50%;animation:spin 1s linear infinite}
+        .waiting-overlay .waiting-text{color:#fff;font-size:18px;margin-top:20px}
+        .waiting-overlay .waiting-time{color:#ffd700;font-size:14px;margin-top:8px}
         
         @media(max-width:480px){
-            .song-grid{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
-            .song-card{padding:10px 8px;min-height:80px}
-            .song-card .card-name{font-size:12px}
-            .search-row input{min-width:60px;font-size:12px;padding:8px 10px}
-            .search-row button{padding:8px 10px;font-size:11px}
-            .header h1{font-size:20px}
-            .player{padding:8px 10px}
-            .player .top-row .btn-play-pause{width:30px;height:30px;font-size:14px}
+            .song-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+            .song-card{padding:12px 10px;min-height:90px}
+            .song-card .card-name{font-size:13px}
+            .search-row input{min-width:70px;font-size:13px;padding:9px 12px}
+            .search-row button{padding:9px 10px;font-size:11px}
+            .header h1{font-size:22px}
+            .player{padding:8px 12px}
+            .player .top-row .btn-play-pause{width:34px;height:34px;font-size:16px}
+            .volume-popup{min-width:140px;padding:14px 18px;bottom:80px}
+            .music-icon-pulse{font-size:24px}
         }
+        @media(max-width:360px){.song-grid{grid-template-columns:repeat(2,1fr)}}
+        @media(max-width:380px){.header h1{font-size:18px}}
     </style>
 </head>
 <body>
 <div class="toast" id="toast"></div>
+
+<div class="waiting-overlay" id="waitingOverlay">
+    <div class="spinner-big"></div>
+    <div class="waiting-text">⏳ 正在加载歌曲...</div>
+    <div class="waiting-time" id="waitingTime">等待 0 秒</div>
+</div>
+
+<div class="volume-popup" id="volumePopup">
+    <div class="vol-icon" id="volIcon">🔊</div>
+    <div class="vol-label">音量</div>
+    <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.8">
+    <div class="vol-value" id="volValue">80%</div>
+</div>
 
 <div class="container">
     <div class="header" onclick="goHome()">
@@ -303,7 +397,7 @@ HTML_TEMPLATE = '''
             最酷音乐下歌精灵
             <span class="version">v2.1</span>
         </h1>
-        <div class="sub">🎧 点击卡片立即播放 · 直接下载</div>
+        <div class="sub">🎧 点击卡片立即播放 · 边下边播</div>
         <div class="lyric">✨ "{{ lyric }}"</div>
     </div>
     
@@ -325,10 +419,20 @@ HTML_TEMPLATE = '''
         <button onclick="switchTab('downloaded')">📂 已下载</button>
     </div>
     
+    <div id="loading" class="loading"><div class="spinner"></div><p style="color:#888;margin-top:6px;font-size:13px">加载中...</p></div>
+    
     <div id="songGrid" class="song-grid"></div>
+    
+    <div id="downloadStatus" class="download-status">
+        <div class="info"><span id="downloadInfo">准备下载...</span><span id="downloadProgress">0%</span></div>
+        <div class="bar"><div class="bar-inner" id="progressBar" style="width:0%"></div></div>
+        <div style="margin-top:4px;font-size:11px;color:#666" id="downloadDetail"></div>
+    </div>
+    
+    <div class="footer-text">🎵 最酷音乐下歌精灵 v2.1 · 点击卡片立即播放</div>
 </div>
 
-<!-- 播放器 -->
+<!-- ===== 播放器 ===== -->
 <div class="player" id="player" style="display:none">
     <div class="top-row">
         <button class="btn-close" onclick="closePlayer()">✕</button>
@@ -336,6 +440,7 @@ HTML_TEMPLATE = '''
             <div class="name" id="playerName">歌曲名</div>
             <div class="singer" id="playerSinger">歌手</div>
         </div>
+        <button class="btn-volume" id="volumeBtn" onclick="toggleVolume(event)">🔊</button>
         <button class="btn-play-pause" id="playPauseBtn" onclick="togglePlay()">▶️</button>
     </div>
     <div class="bottom-row">
@@ -357,11 +462,17 @@ const presetSongs = {{ preset_songs|tojson }};
 // ==================== 状态 ====================
 let currentSongs = [];
 let currentTab = 'recommend';
+let downloadTaskId = null;
+let statusCheckInterval = null;
 let favorites = [];
 let currentPlayIndex = -1;
-let playMode = 'order';
+let playMode = 'all';
 let isPlaying = false;
-let audioElement = null;
+let shuffledIndices = [];
+let shuffleIndex = 0;
+let volumeTimeout = null;
+let waitingTimer = null;
+let waitingSeconds = 0;
 
 // ==================== Toast ====================
 function showToast(msg) {
@@ -372,13 +483,59 @@ function showToast(msg) {
     el._timer = setTimeout(() => el.classList.remove('show'), 2500);
 }
 
-function goHome() { window.location.href = '/'; }
+// ==================== 跳转主页 ====================
+function goHome() {
+    window.location.href = '/';
+}
+
+// ==================== 音量控制 ====================
+function toggleVolume(e) {
+    e.stopPropagation();
+    const popup = document.getElementById('volumePopup');
+    if (popup.classList.contains('show')) {
+        popup.classList.remove('show');
+        clearTimeout(volumeTimeout);
+    } else {
+        popup.classList.add('show');
+        clearTimeout(volumeTimeout);
+        volumeTimeout = setTimeout(() => popup.classList.remove('show'), 4000);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const slider = document.getElementById('volumeSlider');
+    const valDisplay = document.getElementById('volValue');
+    const icon = document.getElementById('volIcon');
+    const audio = document.getElementById('audioPlayer');
+    
+    slider.addEventListener('input', function() {
+        const val = parseFloat(this.value);
+        const pct = Math.round(val * 100);
+        valDisplay.textContent = pct + '%';
+        audio.volume = val;
+        icon.textContent = val > 0.5 ? '🔊' : val > 0.1 ? '🔉' : '🔇';
+        clearTimeout(volumeTimeout);
+        volumeTimeout = setTimeout(() => {
+            document.getElementById('volumePopup').classList.remove('show');
+        }, 4000);
+    });
+});
+
+document.addEventListener('click', function(e) {
+    const popup = document.getElementById('volumePopup');
+    const btn = document.getElementById('volumeBtn');
+    if (!popup.contains(e.target) && !btn.contains(e.target)) {
+        popup.classList.remove('show');
+        clearTimeout(volumeTimeout);
+    }
+});
 
 // ==================== 初始化 ====================
 document.addEventListener('DOMContentLoaded', function() {
     loadRecommend();
     loadQuickTags();
     loadFavoritesFromStorage();
+    loadPlayerState();
 });
 
 function loadQuickTags() {
@@ -399,6 +556,34 @@ function isFavorite(song) {
     return favorites.some(s => s.song === song.song && s.singer === song.singer);
 }
 
+function savePlayerState() {
+    const audio = document.getElementById('audioPlayer');
+    try {
+        localStorage.setItem('player_state', JSON.stringify({
+            currentTime: audio.currentTime || 0,
+            playing: isPlaying,
+            song: currentPlayIndex >= 0 && currentPlayIndex < currentSongs.length ? currentSongs[currentPlayIndex] : null,
+            index: currentPlayIndex,
+            mode: playMode
+        }));
+    } catch(e) {}
+}
+
+function loadPlayerState() {
+    try {
+        const state = JSON.parse(localStorage.getItem('player_state'));
+        if (state && state.song) {
+            const idx = currentSongs.findIndex(s => s.song === state.song.song && s.singer === state.song.singer);
+            if (idx >= 0) {
+                currentPlayIndex = idx;
+                playMode = state.mode || 'all';
+                updateModeButton();
+                playSong(idx, state.currentTime || 0);
+            }
+        }
+    } catch(e) {}
+}
+
 // ==================== 渲染卡片 ====================
 function renderSongs(songs, showFavoriteBtn=true, isLocal=false) {
     const container = document.getElementById('songGrid');
@@ -407,17 +592,20 @@ function renderSongs(songs, showFavoriteBtn=true, isLocal=false) {
         return;
     }
     currentSongs = songs;
+    shuffledIndices = [];
+    shuffleIndex = 0;
     
     container.innerHTML = songs.map((song, idx) => {
         const fav = isFavorite(song);
-        const isCurrent = (idx === currentPlayIndex && audioElement && audioElement.src);
-        const badge = isCurrent ? '<div class="card-badge">▶ 播放中</div>' : (isLocal ? '<div class="card-badge local">📂 本地</div>' : '');
+        const isCurrent = (idx === currentPlayIndex);
+        const localBadge = isLocal ? '<div class="card-badge local">📂 本地</div>' : '';
+        const badge = isCurrent ? '<div class="card-badge">▶ 播放中</div>' : localBadge;
         return `
         <div class="song-card ${isCurrent ? 'playing' : ''}" id="card-${idx}" onclick="playSong(${idx})">
             ${badge}
             <div class="card-icon">${isCurrent ? '🎵' : '🎶'}</div>
             <div class="card-name">${song.song}</div>
-            <div class="card-singer">${song.singer}</div>
+            <div class="card-singer" onclick="event.stopPropagation();searchSinger('${song.singer}')">${song.singer}</div>
             <div class="card-actions" onclick="event.stopPropagation();">
                 <button class="card-btn-download" onclick="downloadSong(${idx})">⬇️ 下载</button>
                 ${showFavoriteBtn ? `
@@ -443,15 +631,19 @@ function switchTab(tab) {
 }
 
 function loadRecommend() {
-    renderSongs(presetSongs);
+    showLoading(true);
+    setTimeout(() => { renderSongs(presetSongs); showLoading(false); }, 300);
 }
 
 function searchMusic() {
     const keyword = document.getElementById('keyword').value.trim();
     if (!keyword) return;
+    showLoading(true);
+    document.getElementById('songGrid').innerHTML = '';
     fetch(`/api/search?keyword=${encodeURIComponent(keyword)}`)
         .then(res => res.json())
         .then(data => {
+            showLoading(false);
             if (data.code === 200 && data.data.length > 0) {
                 renderSongs(data.data);
                 switchTab('search');
@@ -459,17 +651,20 @@ function searchMusic() {
                 document.getElementById('songGrid').innerHTML = `<div class="empty">😅 没有找到 "${keyword}"</div>`;
             }
         })
-        .catch(() => { document.getElementById('songGrid').innerHTML = '<div class="empty">❌ 网络错误</div>'; });
+        .catch(() => { showLoading(false); document.getElementById('songGrid').innerHTML = '<div class="empty">❌ 网络错误</div>'; });
 }
 
 function quickSearch(k) { document.getElementById('keyword').value = k; searchMusic(); }
 function searchBySinger() { const s = prompt('请输入歌手名称：'); if(s && s.trim()) { document.getElementById('keyword').value=s; searchMusic(); } }
+function searchSinger(s) { document.getElementById('keyword').value=s; searchMusic(); }
 
 // ==================== 已下载 ====================
 function showDownloaded() {
+    showLoading(true);
     fetch('/api/downloaded')
         .then(res => res.json())
         .then(data => {
+            showLoading(false);
             if (data.code === 200 && data.data.length > 0) {
                 renderSongs(data.data, false, true);
                 switchTab('downloaded');
@@ -478,7 +673,10 @@ function showDownloaded() {
                 switchTab('downloaded');
             }
         })
-        .catch(() => { document.getElementById('songGrid').innerHTML = '<div class="empty">❌ 加载失败</div>'; });
+        .catch(() => {
+            showLoading(false);
+            document.getElementById('songGrid').innerHTML = '<div class="empty">❌ 加载失败</div>';
+        });
 }
 
 // ==================== 收藏 ====================
@@ -487,7 +685,7 @@ function toggleFavorite(idx) {
     if (!song) return;
     const index = favorites.findIndex(s => s.song === song.song && s.singer === song.singer);
     if (index > -1) favorites.splice(index, 1);
-    else favorites.push({song: song.song, singer: song.singer});
+    else favorites.push({song: song.song, singer: song.singer, mid: song.mid || ''});
     saveFavorites();
     showToast(index > -1 ? '已取消收藏' : '❤️ 已收藏');
     if (currentTab === 'favorites') showFavorites();
@@ -496,7 +694,7 @@ function toggleFavorite(idx) {
 
 function showFavorites() {
     if (favorites.length === 0) {
-        document.getElementById('songGrid').innerHTML = '<div class="empty">💔 还没有收藏歌曲</div>';
+        document.getElementById('songGrid').innerHTML = '<div class="empty">💔 还没有收藏歌曲<br><span style="font-size:12px;color:#555">点击 🤍 收藏</span></div>';
         switchTab('favorites');
         return;
     }
@@ -504,14 +702,38 @@ function showFavorites() {
     switchTab('favorites');
 }
 
-// ==================== 播放 ====================
-function playSong(idx) {
+// ==================== 等待遮罩 ====================
+function showWaiting(show) {
+    const overlay = document.getElementById('waitingOverlay');
+    if (show) {
+        overlay.classList.add('show');
+        waitingSeconds = 0;
+        document.getElementById('waitingTime').textContent = '等待 0 秒';
+        clearInterval(waitingTimer);
+        waitingTimer = setInterval(() => {
+            waitingSeconds++;
+            document.getElementById('waitingTime').textContent = '等待 ' + waitingSeconds + ' 秒';
+            if (waitingSeconds >= 6) {
+                clearInterval(waitingTimer);
+            }
+        }, 1000);
+    } else {
+        overlay.classList.remove('show');
+        clearInterval(waitingTimer);
+    }
+}
+
+// ==================== 播放（点击卡片立即播放） ====================
+function playSong(idx, seekTime) {
     if (idx < 0 || idx >= currentSongs.length) return;
     const song = currentSongs[idx];
     if (!song) return;
     
-    currentPlayIndex = idx;
+    showWaiting(true);
     
+    currentPlayIndex = idx;
+    const player = document.getElementById('player');
+    const audio = document.getElementById('audioPlayer');
     document.getElementById('playerName').textContent = song.song;
     document.getElementById('playerSinger').textContent = song.singer;
     
@@ -519,98 +741,151 @@ function playSong(idx) {
     const el = document.getElementById(`card-${idx}`);
     if (el) el.classList.add('playing');
     
-    let playUrl = '';
-    if (song.mid && song.mid.startsWith('local_')) {
-        playUrl = `/api/local/${encodeURIComponent(song.file)}`;
-    } else {
-        playUrl = `/api/stream/${encodeURIComponent(song.mid || '')}`;
-    }
+    const playUrl = `/api/stream/${encodeURIComponent(song.mid || '')}`;
+    audio.src = playUrl;
+    audio.load();
     
-    if (!audioElement) {
-        audioElement = new Audio();
-        setupAudioEvents();
-    }
+    let loaded = false;
+    audio.oncanplay = function() {
+        if (!loaded) {
+            loaded = true;
+            showWaiting(false);
+            audio.play();
+            isPlaying = true;
+            player.style.display = 'block';
+            document.getElementById('playPauseBtn').textContent = '⏸️';
+            setupAudioEvents();
+            savePlayerState();
+            showToast(`▶️ 正在播放: ${song.song}`);
+        }
+    };
     
-    audioElement.src = playUrl;
-    audioElement.load();
-    audioElement.play();
-    isPlaying = true;
-    document.getElementById('player').style.display = 'block';
-    document.getElementById('playPauseBtn').textContent = '⏸️';
-    showToast(`▶️ 正在播放: ${song.song}`);
+    setTimeout(() => {
+        showWaiting(false);
+        if (!loaded) {
+            audio.play().catch(() => {});
+            isPlaying = true;
+            player.style.display = 'block';
+            document.getElementById('playPauseBtn').textContent = '⏸️';
+            setupAudioEvents();
+            savePlayerState();
+            showToast(`▶️ 正在播放: ${song.song}`);
+        }
+    }, 6000);
+    
+    audio.onerror = function() {
+        showWaiting(false);
+        showToast('❌ 播放失败，请重试');
+        isPlaying = false;
+        document.getElementById('playPauseBtn').textContent = '▶️';
+    };
 }
 
 function togglePlay() {
-    if (!audioElement) return;
-    if (audioElement.paused) {
-        audioElement.play();
+    const audio = document.getElementById('audioPlayer');
+    if (audio.paused) {
+        audio.play();
         isPlaying = true;
         document.getElementById('playPauseBtn').textContent = '⏸️';
     } else {
-        audioElement.pause();
+        audio.pause();
         isPlaying = false;
         document.getElementById('playPauseBtn').textContent = '▶️';
     }
+    savePlayerState();
 }
 
 function closePlayer() {
     document.getElementById('player').style.display = 'none';
-    if (audioElement) { audioElement.pause(); audioElement.src = ''; }
+    const audio = document.getElementById('audioPlayer');
+    audio.pause();
+    audio.src = '';
     isPlaying = false;
+    savePlayerState();
 }
 
 function seekTo(e) {
     const bar = document.getElementById('progressBarPlayer');
     const rect = bar.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    if (audioElement && audioElement.duration) {
-        audioElement.currentTime = pct * audioElement.duration;
+    const audio = document.getElementById('audioPlayer');
+    if (audio.duration) {
+        audio.currentTime = pct * audio.duration;
     }
 }
 
+// ===== 播放模式 =====
 function toggleMode() {
-    const modes = ['order', 'single', 'random'];
-    const labels = ['🔁 列表', '🔂 单曲', '🎲 随机'];
+    const modes = ['all', 'single', 'loop', 'random'];
+    const labels = ['🔁 列表', '🔂 单曲', '🔁 循环', '🎲 随机'];
     const idx = modes.indexOf(playMode);
-    playMode = modes[(idx + 1) % 3];
-    document.getElementById('modeBtn').textContent = labels[modes.indexOf(playMode)];
+    playMode = modes[(idx + 1) % 4];
+    updateModeButton();
+    savePlayerState();
+    if (playMode === 'random') generateShuffleList();
     showToast('播放模式: ' + labels[modes.indexOf(playMode)]);
 }
 
-function getNextIndex() {
-    if (!currentSongs.length) return -1;
-    if (playMode === 'single') return currentPlayIndex;
-    if (playMode === 'random') {
-        let newIndex;
-        do { newIndex = Math.floor(Math.random() * currentSongs.length); } 
-        while (currentSongs.length > 1 && newIndex === currentPlayIndex);
-        return newIndex;
+function updateModeButton() {
+    const btn = document.getElementById('modeBtn');
+    const labels = {'all':'🔁 列表', 'single':'🔂 单曲', 'loop':'🔁 循环', 'random':'🎲 随机'};
+    btn.textContent = labels[playMode] || '🔁 列表';
+}
+
+function generateShuffleList() {
+    shuffledIndices = Array.from({length: currentSongs.length}, (_, i) => i);
+    for (let i = shuffledIndices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledIndices[i], shuffledIndices[j]] = [shuffledIndices[j], shuffledIndices[i]];
     }
-    let next = currentPlayIndex + 1;
-    if (next >= currentSongs.length) next = 0;
-    return next;
+    shuffleIndex = 0;
+    if (currentPlayIndex >= 0) {
+        const pos = shuffledIndices.indexOf(currentPlayIndex);
+        if (pos >= 0) shuffleIndex = pos;
+    }
+}
+
+function getNextSongIndex() {
+    if (playMode === 'random') {
+        if (shuffledIndices.length === 0) generateShuffleList();
+        const idx = shuffledIndices[shuffleIndex];
+        shuffleIndex = (shuffleIndex + 1) % shuffledIndices.length;
+        return idx;
+    }
+    return (currentPlayIndex + 1) % currentSongs.length;
 }
 
 function setupAudioEvents() {
-    if (!audioElement) return;
+    const audio = document.getElementById('audioPlayer');
+    const progress = document.getElementById('progressInner');
+    const currentTimeEl = document.getElementById('currentTime');
+    const totalTimeEl = document.getElementById('totalTime');
     
-    audioElement.ontimeupdate = function() {
-        if (audioElement.duration) {
-            document.getElementById('progressInner').style.width = (audioElement.currentTime / audioElement.duration * 100) + '%';
-            document.getElementById('currentTime').textContent = formatTime(audioElement.currentTime);
-            document.getElementById('totalTime').textContent = formatTime(audioElement.duration);
+    audio.ontimeupdate = function() {
+        if (audio.duration) {
+            progress.style.width = (audio.currentTime / audio.duration * 100) + '%';
+            currentTimeEl.textContent = formatTime(audio.currentTime);
+            totalTimeEl.textContent = formatTime(audio.duration);
         }
+        savePlayerState();
     };
     
-    audioElement.onended = function() {
+    audio.onended = function() {
         if (playMode === 'single') {
-            audioElement.currentTime = 0;
-            audioElement.play();
+            audio.currentTime = 0;
+            audio.play();
+        } else if (playMode === 'loop' || playMode === 'all' || playMode === 'random') {
+            const nextIdx = getNextSongIndex();
+            playSong(nextIdx);
         } else {
-            const nextIdx = getNextIndex();
-            if (nextIdx !== currentPlayIndex) playSong(nextIdx);
+            isPlaying = false;
+            document.getElementById('playPauseBtn').textContent = '▶️';
+            savePlayerState();
         }
     };
+    
+    audio.onplay = function() { isPlaying = true; document.getElementById('playPauseBtn').textContent = '⏸️'; };
+    audio.onpause = function() { isPlaying = false; document.getElementById('playPauseBtn').textContent = '▶️'; };
 }
 
 function formatTime(seconds) {
@@ -624,17 +899,66 @@ function formatTime(seconds) {
 function downloadSong(idx) {
     const song = currentSongs[idx];
     if (!song) return;
+    const status = document.getElementById('downloadStatus');
+    status.style.display = 'block';
+    document.getElementById('downloadInfo').textContent = `⬇️ ${song.song} - ${song.singer}`;
+    document.getElementById('downloadProgress').textContent = '0%';
+    document.getElementById('progressBar').style.width = '0%';
+    document.getElementById('downloadDetail').textContent = '⏳ 准备下载...';
+    showToast(`⏳ 开始下载: ${song.song}`);
     
-    let downloadUrl = '';
-    if (song.mid && song.mid.startsWith('local_')) {
-        downloadUrl = `/api/local/${encodeURIComponent(song.file)}?download=true`;
-    } else {
-        downloadUrl = `/api/download/direct/${encodeURIComponent(song.mid || '')}?name=${encodeURIComponent(song.song + ' - ' + song.singer)}`;
-    }
-    
-    window.open(downloadUrl, '_blank');
-    showToast(`⬇️ 正在下载: ${song.song}`);
-    setTimeout(() => showToast(`✅ 下载完成: ${song.song}`), 5000);
+    fetch('/api/download', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(song)
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.code === 200) {
+            downloadTaskId = data.task_id;
+            startStatusCheck();
+        } else {
+            document.getElementById('downloadDetail').textContent = '❌ ' + data.message;
+            showToast('❌ 下载失败: ' + data.message);
+        }
+    })
+    .catch(() => { document.getElementById('downloadDetail').textContent = '❌ 下载请求失败'; showToast('❌ 下载请求失败'); });
+}
+
+function startStatusCheck() {
+    if (statusCheckInterval) clearInterval(statusCheckInterval);
+    statusCheckInterval = setInterval(() => {
+        fetch(`/api/download/status/${downloadTaskId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'completed') {
+                    clearInterval(statusCheckInterval);
+                    document.getElementById('downloadInfo').textContent = '✅ 下载完成!';
+                    document.getElementById('downloadProgress').textContent = '100%';
+                    document.getElementById('progressBar').style.width = '100%';
+                    document.getElementById('downloadDetail').innerHTML = `
+                        📁 已保存: ${data.file}
+                        <br>
+                        <a href="/api/download/file/${downloadTaskId}" style="color:#ffd700;" download>🎧 点击下载文件</a>
+                    `;
+                    showToast('✅ 下载完成: ' + data.file);
+                } else if (data.status === 'downloading') {
+                    document.getElementById('downloadProgress').textContent = data.progress + '%';
+                    document.getElementById('progressBar').style.width = data.progress + '%';
+                    document.getElementById('downloadDetail').textContent = `⏳ 下载中... ${data.progress}%`;
+                } else if (data.status === 'failed') {
+                    clearInterval(statusCheckInterval);
+                    document.getElementById('downloadInfo').textContent = '❌ 下载失败';
+                    document.getElementById('downloadDetail').textContent = '错误: ' + (data.error || '未知错误');
+                    showToast('❌ 下载失败');
+                }
+            })
+            .catch(() => {});
+    }, 1000);
+}
+
+function showLoading(show) {
+    document.getElementById('loading').style.display = show ? 'block' : 'none';
 }
 </script>
 </body>
@@ -647,39 +971,22 @@ function downloadSong(idx) {
 def stream_music(mid):
     song_url = get_song_url(mid)
     if not song_url:
-        return jsonify({'code': 404, 'message': '无法获取播放链接'}), 404
+        return jsonify({'code': 404, 'message': '无法获取播放链接，请尝试下载后播放'}), 404
     response = proxy_stream(song_url)
     if response:
         return response
     return jsonify({'code': 404, 'message': '播放失败'}), 404
 
-@app.route('/api/download/direct/<mid>')
-def download_direct(mid):
-    song_name = request.args.get('name', 'music')
-    song_url = get_song_url(mid)
-    if not song_url:
-        return jsonify({'code': 404, 'message': '无法获取下载链接'}), 404
-    if mid.startswith('preset_'):
-        return jsonify({'code': 404, 'message': '预设歌曲暂无下载源'}), 404
-    filename = f"{song_name}.mp3"
-    response = proxy_stream(song_url, as_attachment=True, filename=filename)
-    if response:
-        return response
-    return jsonify({'code': 404, 'message': '下载失败'}), 404
-
-@app.route('/api/local/<path:filename>')
-def play_local(filename):
-    filepath = os.path.join(DOWNLOAD_DIR, filename)
-    if not os.path.exists(filepath):
-        return jsonify({'code': 404, 'message': '文件不存在'}), 404
-    if request.args.get('download'):
-        return send_file(filepath, as_attachment=True, download_name=filename)
-    return send_file(filepath, mimetype='audio/mpeg')
-
 @app.route('/api/downloaded')
 def get_downloaded():
     songs = get_downloaded_songs()
     return jsonify({'code': 200, 'data': songs})
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE, 
+                                  lyric=get_random_lyric(),
+                                  preset_songs=PRESET_SONGS)
 
 @app.route('/api/search')
 def search():
@@ -689,11 +996,34 @@ def search():
     results = search_music(keyword)
     return jsonify({'code': 200, 'data': results})
 
-@app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE, 
-                                  lyric=get_random_lyric(),
-                                  preset_songs=PRESET_SONGS)
+@app.route('/api/download', methods=['POST'])
+def start_download():
+    song = request.json
+    if not song or not song.get('mid'):
+        return jsonify({'code': 400, 'message': '无效的歌曲信息'})
+    task_id = f"{int(time.time())}_{random.randint(1000, 9999)}"
+    thread = threading.Thread(target=download_song_task, args=(task_id, song))
+    thread.daemon = True
+    thread.start()
+    return jsonify({'code': 200, 'task_id': task_id})
+
+@app.route('/api/download/status/<task_id>')
+def download_status(task_id):
+    if task_id not in download_tasks:
+        return jsonify({'status': 'not_found'})
+    return jsonify(download_tasks[task_id])
+
+@app.route('/api/download/file/<task_id>')
+def download_file(task_id):
+    if task_id not in download_tasks:
+        return jsonify({'error': '任务不存在'}), 404
+    task = download_tasks[task_id]
+    if task.get('status') != 'completed':
+        return jsonify({'error': '文件未准备好'}), 404
+    path = task.get('path')
+    if not path or not os.path.exists(path):
+        return jsonify({'error': '文件不存在'}), 404
+    return send_file(path, as_attachment=True, download_name=task.get('file', 'music.mp3'))
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
@@ -702,7 +1032,8 @@ if __name__ == '__main__':
     print("  🎵 最酷音乐下歌精灵 v2.1")
     print("="*60)
     print(f"  🌐 访问地址: http://localhost:{port}")
-    print("  🎧 点击卡片立即播放 · 直接下载")
+    print("  🎧 点击卡片立即播放 · 6秒等待")
     print("  📂 已下载歌曲列表")
+    print("  🏠 点击标题返回主页")
     print("="*60)
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
