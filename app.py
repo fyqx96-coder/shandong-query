@@ -27,6 +27,7 @@ else:
 
 download_tasks = {}
 song_url_cache = {}
+temp_play_cache = {}  # 临时缓存播放链接
 
 # ==================== 预置推荐歌单 ====================
 PRESET_SONGS = [
@@ -86,48 +87,34 @@ def search_music(keyword):
                 results.append(song.copy())
         if results:
             return results
-        # 使用多个API源
-        apis = [
-            f"https://api.vkeys.cn/v2/music/tencent?word={keyword}",
-            f"https://api.itooi.cn/music/tencent/search?key=579621905&s={keyword}",
-            f"https://api.uomg.com/api/rand.music?sort={keyword}&format=json"
-        ]
-        for api in apis:
-            try:
-                response = requests.get(api, timeout=10)
-                data = response.json()
-                if data.get('code') == 200 and data.get('data'):
-                    songs = data['data']
-                    if isinstance(songs, list):
-                        for song in songs:
-                            results.append({
-                                'song': song.get('song') or song.get('name') or '未知',
-                                'singer': song.get('singer') or song.get('artist') or '未知',
-                                'mid': str(song.get('mid') or song.get('id') or f"mid_{int(time.time())}"),
-                                'album': song.get('album', '未知'),
-                                'time': song.get('time', '未知')
-                            })
-                        if results:
-                            return results
-            except:
-                continue
-        return []
+        url = f"https://api.vkeys.cn/v2/music/tencent?word={keyword}"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        if data['code'] != 200 or not data['data']:
+            return []
+        for song in data['data']:
+            results.append({
+                'song': song['song'],
+                'singer': song['singer'],
+                'album': song.get('album', '未知'),
+                'mid': song.get('mid', ''),
+                'time': song.get('time', '未知')
+            })
+        return results
     except Exception as e:
         print(f"搜索失败: {e}")
         return []
 
-def get_song_url(mid):
-    """获取歌曲播放链接 - 多源备用"""
+def get_song_url(mid, retry=3):
+    """获取歌曲播放链接 - 支持重试"""
     if mid in song_url_cache:
         return song_url_cache[mid]
     
-    # 如果是预设歌曲，尝试通过网易云搜索获取
+    # 预设歌曲通过网易云获取
     if mid.startswith('preset_'):
-        # 从预置歌单找对应的歌曲名和歌手
         for song in PRESET_SONGS:
             if song.get('mid') == mid:
                 try:
-                    # 使用网易云搜索
                     search_url = f"https://music.163.com/api/search/get/web?s={quote(song['song'] + ' ' + song['singer'])}&type=1&limit=1"
                     resp = requests.get(search_url, timeout=10)
                     data = resp.json()
@@ -136,37 +123,56 @@ def get_song_url(mid):
                         play_url = f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
                         song_url_cache[mid] = play_url
                         return play_url
-                except Exception as e:
-                    print(f"网易云搜索失败: {e}")
+                except:
+                    pass
                 break
         return None
     
-    # 非预设歌曲，尝试多个API
-    apis = [
-        f"https://api.vkeys.cn/v2/music/tencent?mid={mid}&quality=8",
-        f"https://api.itooi.cn/music/tencent/url?key=579621905&id={mid}",
-    ]
-    for api in apis:
+    # 尝试获取播放链接
+    for attempt in range(retry):
         try:
-            response = requests.get(api, timeout=10)
+            url = f"https://api.vkeys.cn/v2/music/tencent?mid={mid}&quality=8"
+            response = requests.get(url, timeout=10)
             data = response.json()
-            if data.get('code') == 200 and data.get('data'):
+            if data['code'] == 200 and data.get('data'):
                 song_url = data['data'].get('url')
                 if song_url and song_url.startswith('http'):
                     song_url_cache[mid] = song_url
                     return song_url
         except:
+            time.sleep(0.5)
             continue
     
-    # 最后尝试网易云搜索
+    # 备用：尝试网易云
     try:
-        # 通过mid搜索（如果mid是数字）
         if mid.isdigit():
             play_url = f"https://music.163.com/song/media/outer/url?id={mid}.mp3"
             song_url_cache[mid] = play_url
             return play_url
     except:
         pass
+    
+    return None
+
+def get_song_url_with_download(mid, song_name=None, singer=None):
+    """获取播放链接，如果获取不到则直接下载到临时文件"""
+    url = get_song_url(mid)
+    if url:
+        return url
+    
+    # 如果获取不到链接，尝试通过搜索下载
+    if song_name and singer:
+        try:
+            search_url = f"https://music.163.com/api/search/get/web?s={quote(song_name + ' ' + singer)}&type=1&limit=1"
+            resp = requests.get(search_url, timeout=10)
+            data = resp.json()
+            if data.get('result', {}).get('songs'):
+                song_id = data['result']['songs'][0]['id']
+                play_url = f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
+                song_url_cache[mid] = play_url
+                return play_url
+        except:
+            pass
     
     return None
 
@@ -201,14 +207,33 @@ def download_song_task(task_id, song):
     except Exception as e:
         download_tasks[task_id] = {'status': 'failed', 'error': str(e)}
 
-def proxy_stream(url):
+def proxy_stream_with_buffer(url):
+    """带缓冲的流式播放 - 先缓冲再播放"""
     try:
-        response = requests.get(url, stream=True, timeout=30)
+        # 先下载到内存缓冲
+        response = requests.get(url, stream=True, timeout=60)
         response.raise_for_status()
+        
+        # 预缓冲 512KB 数据再开始播放
+        buffer = bytearray()
+        first_chunk = True
+        
         def generate():
-            for chunk in response.iter_content(chunk_size=8192):
+            nonlocal first_chunk, buffer
+            for chunk in response.iter_content(chunk_size=16384):
                 if chunk:
-                    yield chunk
+                    if first_chunk:
+                        buffer.extend(chunk)
+                        if len(buffer) >= 524288:  # 缓冲 512KB
+                            first_chunk = False
+                            yield bytes(buffer)
+                            buffer.clear()
+                    else:
+                        yield chunk
+            # 发送剩余数据
+            if buffer:
+                yield bytes(buffer)
+        
         return Response(
             stream_with_context(generate()),
             status=response.status_code,
@@ -218,6 +243,7 @@ def proxy_stream(url):
                 'Accept-Ranges': 'bytes',
                 'Cache-Control': 'public, max-age=86400',
                 'Access-Control-Allow-Origin': '*',
+                'Connection': 'keep-alive',
             }
         )
     except Exception as e:
@@ -238,7 +264,7 @@ def get_downloaded_songs():
                     songs.append({'song': name, 'singer': '未知', 'file': f})
     return songs
 
-# ==================== HTML 模板 ====================
+# ==================== HTML 模板（精简稳定版） ====================
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -379,8 +405,8 @@ HTML_TEMPLATE = '''
 
 <div class="waiting-overlay" id="waitingOverlay">
     <div class="spinner-big"></div>
-    <div class="waiting-text">⏳ 正在加载歌曲...</div>
-    <div class="waiting-time" id="waitingTime">等待 0 秒</div>
+    <div class="waiting-text">⏳ 正在缓冲歌曲...</div>
+    <div class="waiting-time" id="waitingTime">缓冲 0 秒</div>
 </div>
 
 <div class="volume-popup" id="volumePopup">
@@ -397,7 +423,7 @@ HTML_TEMPLATE = '''
             最酷音乐下歌精灵
             <span class="version">v2.1</span>
         </h1>
-        <div class="sub">🎧 点击卡片立即播放 · 边下边播</div>
+        <div class="sub">🎧 点击卡片缓冲播放 · 边下边播</div>
         <div class="lyric">✨ "{{ lyric }}"</div>
     </div>
     
@@ -429,7 +455,7 @@ HTML_TEMPLATE = '''
         <div style="margin-top:4px;font-size:11px;color:#666" id="downloadDetail"></div>
     </div>
     
-    <div class="footer-text">🎵 最酷音乐下歌精灵 v2.1 · 点击卡片立即播放</div>
+    <div class="footer-text">🎵 最酷音乐下歌精灵 v2.1 · 点击卡片缓冲播放</div>
 </div>
 
 <!-- ===== 播放器 ===== -->
@@ -480,7 +506,7 @@ function showToast(msg) {
     el.textContent = msg;
     el.classList.add('show');
     clearTimeout(el._timer);
-    el._timer = setTimeout(() => el.classList.remove('show'), 2500);
+    el._timer = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
 // ==================== 跳转主页 ====================
@@ -702,18 +728,21 @@ function showFavorites() {
     switchTab('favorites');
 }
 
-// ==================== 等待遮罩 ====================
-function showWaiting(show) {
+// ==================== 等待遮罩（缓冲） ====================
+function showWaiting(show, text) {
     const overlay = document.getElementById('waitingOverlay');
+    const textEl = document.getElementById('waitingTime');
     if (show) {
         overlay.classList.add('show');
         waitingSeconds = 0;
-        document.getElementById('waitingTime').textContent = '等待 0 秒';
+        document.getElementById('waitingText').textContent = text || '⏳ 正在缓冲歌曲...';
+        textEl.textContent = '缓冲 ' + waitingSeconds + ' 秒';
         clearInterval(waitingTimer);
         waitingTimer = setInterval(() => {
             waitingSeconds++;
-            document.getElementById('waitingTime').textContent = '等待 ' + waitingSeconds + ' 秒';
-            if (waitingSeconds >= 6) {
+            textEl.textContent = '缓冲 ' + waitingSeconds + ' 秒';
+            if (waitingSeconds >= 10) {
+                textEl.textContent = '⏳ 加载中...';
                 clearInterval(waitingTimer);
             }
         }, 1000);
@@ -723,13 +752,13 @@ function showWaiting(show) {
     }
 }
 
-// ==================== 播放（点击卡片立即播放） ====================
+// ==================== 播放（点击卡片缓冲播放） ====================
 function playSong(idx, seekTime) {
     if (idx < 0 || idx >= currentSongs.length) return;
     const song = currentSongs[idx];
     if (!song) return;
     
-    showWaiting(true);
+    showWaiting(true, '⏳ 正在缓冲歌曲...');
     
     currentPlayIndex = idx;
     const player = document.getElementById('player');
@@ -760,22 +789,29 @@ function playSong(idx, seekTime) {
         }
     };
     
+    // 缓冲超时 - 给更多时间缓冲
     setTimeout(() => {
         showWaiting(false);
         if (!loaded) {
-            audio.play().catch(() => {});
+            // 尝试强制播放
+            audio.play().catch(() => {
+                showToast('⏳ 仍在缓冲，请稍等...');
+                // 再给5秒缓冲
+                setTimeout(() => {
+                    audio.play().catch(() => {});
+                }, 5000);
+            });
             isPlaying = true;
             player.style.display = 'block';
             document.getElementById('playPauseBtn').textContent = '⏸️';
             setupAudioEvents();
             savePlayerState();
-            showToast(`▶️ 正在播放: ${song.song}`);
         }
-    }, 6000);
+    }, 8000);
     
     audio.onerror = function() {
         showWaiting(false);
-        showToast('❌ 播放失败，请重试');
+        showToast('❌ 播放失败，请下载后播放');
         isPlaying = false;
         document.getElementById('playPauseBtn').textContent = '▶️';
     };
@@ -969,10 +1005,13 @@ function showLoading(show) {
 
 @app.route('/api/stream/<mid>')
 def stream_music(mid):
-    song_url = get_song_url(mid)
+    # 从当前歌曲列表中找到歌曲信息
+    song_name = request.args.get('name', '')
+    singer = request.args.get('singer', '')
+    song_url = get_song_url_with_download(mid, song_name, singer)
     if not song_url:
         return jsonify({'code': 404, 'message': '无法获取播放链接，请尝试下载后播放'}), 404
-    response = proxy_stream(song_url)
+    response = proxy_stream_with_buffer(song_url)
     if response:
         return response
     return jsonify({'code': 404, 'message': '播放失败'}), 404
@@ -1032,7 +1071,7 @@ if __name__ == '__main__':
     print("  🎵 最酷音乐下歌精灵 v2.1")
     print("="*60)
     print(f"  🌐 访问地址: http://localhost:{port}")
-    print("  🎧 点击卡片立即播放 · 6秒等待")
+    print("  🎧 点击卡片缓冲播放 · 边下边播")
     print("  📂 已下载歌曲列表")
     print("  🏠 点击标题返回主页")
     print("="*60)
